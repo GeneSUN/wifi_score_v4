@@ -6,6 +6,7 @@ from pyspark.sql.types import FloatType
 from pyspark.sql.window import Window
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta 
+from py4j.java_gateway import java_import
 from dateutil.parser import parse
 import argparse 
 from functools import reduce 
@@ -20,9 +21,9 @@ class wifiKPIAggregator:
 
     def __init__(self, date_val):
         self.date_val = date_val
-        self.owl_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/OWLHistory/{ date_val.strftime('%Y%m%d')  }"
-        self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ date_val.strftime('%Y%m%d')  }"
-        self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ date_val.strftime('%Y%m%d')  }"
+        self.owl_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/OWLHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
         self.load_data()
         self.ip_change_daily_df = self.ip_changes_agg()
         self.restart_daily_df = self.restart_agg()
@@ -101,52 +102,37 @@ if __name__ == "__main__":
                         .config("spark.sql.adapative.enabled","true")\
                         .config("spark.ui.port","24043")\
                         .getOrCreate()
-    mail_sender = MailSender()
+    hadoop_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
+    email_sender = MailSender()
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/'
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
 
     backfill_range = 4
     parser = argparse.ArgumentParser(description="Inputs") 
-    parser.add_argument("--date", default=(date.today() ).strftime("%Y-%m-%d")) 
+    parser.add_argument("--date", default=( date.today() - timedelta(1) ).strftime("%Y-%m-%d")) 
     args_date = parser.parse_args().date
     date_list = [( datetime.strptime( args_date, "%Y-%m-%d" )  - timedelta(days=i)).date() for i in range(backfill_range)][::-1]
 
-    for date_val in date_list: 
-        try:    
-            spark.read.parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/ip_change_daily_df/{ (date_val - timedelta(1)) .strftime('%Y-%m-%d')}")
-        except Exception as e:
-            print(e)
+    def process_kpi_data(date_list, file_type, email_sender):
+        for date_val in date_list:
+            file_date = date_val.strftime('%Y-%m-%d')
+            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/{file_type}/{file_date}"
+
+            if hadoop_fs.exists(spark._jvm.org.apache.hadoop.fs.Path(file_path)):
+                print(f"{file_type} data for {file_date} already exists.")
+                continue
+
             try:
-                analysis = wifiKPIAggregator(  date_val = date_val)
-                analysis.ip_change_daily_df.write.mode("overwrite")\
-                        .parquet( f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/ip_change_daily_df/{(date_val - timedelta(1)).strftime('%Y-%m-%d')}" )
+                analysis = wifiKPIAggregator(date_val=date_val)
+                getattr(  analysis, file_type  ).write.mode("overwrite").parquet(file_path)
             except Exception as e:
                 print(e)
-                mail_sender.send( send_from ="ip_change_daily_df@verizon.com", 
-                                    subject = f"ip_change_daily_df failed !!! at {(date_val - timedelta(1))}", 
-                                    text = e)
+                email_sender.send(
+                    send_from=f"{file_type}@verizon.com",
+                    subject=f"{file_type} failed !!! at {file_date}",
+                    text=str(e)
+                )
 
-    for date_val in date_list: 
-        try:    
-            spark.read.parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/restart_daily_df/{(date_val - timedelta(1)).strftime('%Y-%m-%d')}")
-        except Exception as e:
-            print(e)
-            try:
-                analysis = wifiKPIAggregator(  date_val = date_val)
-                analysis.ip_change_daily_df.write.mode("overwrite")\
-                        .parquet( f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/restart_daily_df/{(date_val - timedelta(1)).strftime('%Y-%m-%d')}" )
-            except Exception as e:
-                print(e)
-                mail_sender.send( send_from ="restart_daily_df@verizon.com", 
-                                    subject = f"restart_daily_df failed !!! at {(date_val - timedelta(1))}", 
-                                    text = e)
-
-
-
-
-
-
-
-
-
+    process_kpi_data(date_list, "ip_change_daily_df", email_sender)
+    process_kpi_data(date_list, "restart_daily_df", email_sender)
 
