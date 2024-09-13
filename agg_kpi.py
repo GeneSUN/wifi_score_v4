@@ -27,20 +27,11 @@ class wifiKPIAggregator:
         self.load_data()
         self.ip_change_daily_df = self.ip_changes_agg()
         self.restart_daily_df = self.restart_agg()
+        self.airtime_daily_df = self.airtime_agg()
+        self.stationary_daily_df = self.stationary_agg()
 
     def load_data(self):
         
-        titan_filter = col("model_name").isin( ["ASK-NCQ1338FA","ASK-NCQ1338","WNC-CR200A"] )
-
-        self.df_dg = spark.read.parquet( self.deviceGroup_path )\
-                            .select("rowkey",explode("Group_Data_sys_info"))\
-                            .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
-                            .select("sn",col("col.model").alias("model_name") )\
-                            .distinct()\
-                            .filter(titan_filter)
-        self.df_dg.cache()
-        self.df_dg.show()
-
         self.df_owl = spark.read.parquet( self.owl_path )\
             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)_', 1))\
             .withColumn("datetime", F.from_unixtime(F.col("ts") / 1000).cast("timestamp"))\
@@ -51,6 +42,26 @@ class wifiKPIAggregator:
                     .withColumn("datetime", F.from_unixtime(F.col("ts") / 1000).cast("timestamp"))\
                     .withColumn("day", F.to_date("datetime") )
 
+    def airtime_agg(self, df_sh = None):
+        if df_sh is None:
+            df_sh = self.df_sh
+
+        df_flattened = df_sh.withColumn("connect_type", F.col("Station_Data_connect_data.connect_type"))\
+                            .withColumn("airtime_util", F.col("Station_Data_connect_data.airtime_util"))\
+                            .withColumn(
+                                        "connect_type",
+                                        F.when(F.col("connect_type").like("2.4G%"), "2_4G")
+                                        .when(F.col("connect_type").like("5G%"), "5G")
+                                        .when(F.col("connect_type").like("6G%"), "6G")
+                                        .otherwise(F.col("connect_type"))
+                            )\
+                            .filter( col("airtime_util").isNotNull() )\
+                            .filter( col("connect_type")=="2_4G" )
+
+        df_airtime = df_flattened.groupby("sn","rowkey","connect_type","day")\
+                                .agg( F.sum("airtime_util").alias("sum_airtime_util") )\
+
+        return df_airtime
 
     def ip_changes_agg(self, df_owl = None, df_restart = None):
         
@@ -69,7 +80,7 @@ class wifiKPIAggregator:
                     .groupby("sn","day")\
                     .agg(F.sum("ip_changes_flag").alias("no_ip_changes"))
             )
-        return ip_change_daily_df.join( self.df_dg, "sn" )
+        return ip_change_daily_df
 
     def restart_agg(self, df_owl = None):
         
@@ -94,14 +105,50 @@ class wifiKPIAggregator:
         df_restart = df_modem_crash.join(df_user_rbt, on=["sn","day"], how="full_outer")\
                                 .join(df_total_rbt, on=["sn","day"], how="full_outer")\
         
-        return df_restart.join( self.df_dg, "sn" )
- 
+        return df_restart
+
+    def stationary_agg(self, df_sh = None, date_val = None ):
+        
+        if df_sh is None:
+            df_sh = self.df_sh
+        if date_val is None:
+            date_val = self.date_val
+                
+        df = df_sh.withColumn("signal_strength", F.col("Station_Data_connect_data.signal_strength"))\
+                    .filter( col("signal_strength").isNotNull() )
+                
+        partition_columns = ["sn","rowkey"]
+        column_name = "signal_strength"
+        percentiles = [0.03, 0.1, 0.5, 0.9]
+        window_spec = Window().partitionBy(partition_columns) 
+
+        three_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[0]})') 
+        ten_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[1]})') 
+        med_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[2]})') 
+        ninety_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[3]})') 
+
+        df_outlier = df.withColumn('3%_val', three_percentile.over(window_spec))\
+                        .withColumn('10%_val', ten_percentile.over(window_spec))\
+                        .withColumn('50%_val', med_percentile.over(window_spec))\
+                        .withColumn('90%_val', ninety_percentile.over(window_spec))\
+                        .withColumn("lower_bound", col('10%_val')-2*(  col('90%_val') - col('10%_val') ) )\
+                        .withColumn("outlier", when( col("lower_bound") < col("3%_val"), col("lower_bound")).otherwise( col("3%_val") ))\
+                        .filter(col(column_name) > col("outlier"))
+
+        stationary_daily_df = df_outlier.withColumn("diff", col('90%_val') - col('50%_val') )\
+                                .withColumn("stationarity", when( col("diff")<= 3, lit("1")).otherwise( lit("0") ))\
+                                .groupby(partition_columns).agg(max("stationarity").alias("stationarity"))\
+                                .withColumn("day", F.lit(F.date_format(F.lit(date_val), "MM-dd-yyyy")))
+
+        return stationary_daily_df
+
 if __name__ == "__main__":
     # the only input is the date which is used to generate 'date_range'
     spark = SparkSession.builder.appName('ZheS_wifiscore_agg')\
                         .config("spark.sql.adapative.enabled","true")\
                         .config("spark.ui.port","24043")\
                         .getOrCreate()
+    
     hadoop_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
     email_sender = MailSender()
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/'
@@ -116,7 +163,7 @@ if __name__ == "__main__":
     def process_kpi_data(date_list, file_type, email_sender):
         for date_val in date_list:
             file_date = date_val.strftime('%Y-%m-%d')
-            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/{file_type}/{file_date}"
+            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/time_window/{file_date}/{file_type}"
 
             if hadoop_fs.exists(spark._jvm.org.apache.hadoop.fs.Path(file_path)):
                 print(f"{file_type} data for {file_date} already exists.")
@@ -135,4 +182,6 @@ if __name__ == "__main__":
 
     process_kpi_data(date_list, "ip_change_daily_df", email_sender)
     process_kpi_data(date_list, "restart_daily_df", email_sender)
+    process_kpi_data(date_list, "airtime_daily_df", email_sender)
+    process_kpi_data(date_list, "stationary_daily_df", email_sender)
 
