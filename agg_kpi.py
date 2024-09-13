@@ -42,28 +42,42 @@ class wifiKPIAggregator:
                     .withColumn("datetime", F.from_unixtime(F.col("ts") / 1000).cast("timestamp"))\
                     .withColumn("day", F.to_date("datetime") )
 
-    def airtime_agg(self, df_sh = None):
-        if df_sh is None:
-            df_sh = self.df_sh
+        self.df_dg = spark.read.parquet( self.deviceGroup_path )\
+                            .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
+                            .withColumn("datetime", F.from_unixtime(F.col("ts") / 1000).cast("timestamp"))\
+                            .withColumn("day", F.to_date("datetime") )
 
-        df_flattened = df_sh.withColumn("connect_type", F.col("Station_Data_connect_data.connect_type"))\
-                            .withColumn("airtime_util", F.col("Station_Data_connect_data.airtime_util"))\
-                            .withColumn(
-                                        "connect_type",
-                                        F.when(F.col("connect_type").like("2.4G%"), "2_4G")
-                                        .when(F.col("connect_type").like("5G%"), "5G")
-                                        .when(F.col("connect_type").like("6G%"), "6G")
-                                        .otherwise(F.col("connect_type"))
-                            )\
-                            .filter( col("airtime_util").isNotNull() )\
-                            .filter( col("connect_type")=="2_4G" )
 
-        df_airtime = df_flattened.groupby("sn","rowkey","connect_type","day")\
-                                .agg( F.sum("airtime_util").alias("sum_airtime_util") )\
+    def airtime_agg(self, df_dg = None):
+        if df_dg is None:
+            df_dg = self.df_dg
+
+        airtime_util_history = df_dg.filter( F.col("Group_Diag_History_radio_wifi_info").isNotNull() )\
+                                    .select(
+                                            F.col("sn"),
+                                            F.col("Group_Diag_History_radio_wifi_info.ts").alias("ts"),
+                                            F.col("Group_Diag_History_radio_wifi_info._2_4g.enable").alias("enable"),
+                                            F.col("Group_Diag_History_radio_wifi_info._2_4g.airtime_util").alias("airtime_util")
+                                        )\
+                                    .withColumn(
+                                            "zipped", 
+                                            F.arrays_zip( F.col("ts"),F.col("airtime_util"), F.col("enable"))
+                                        )\
+                                    .withColumn("zipped_explode", F.explode("zipped"))\
+                                    .select(
+                                            "sn",
+                                            F.col("zipped_explode.ts").alias("ts"),
+                                            F.col("zipped_explode.airtime_util").alias("airtime_util"),
+                                            F.col("zipped_explode.enable").alias("enable")
+                                        )\
+                                    .filter( col("enable")==1 )
+
+        df_airtime = airtime_util_history.groupby("sn")\
+                                        .agg( F.sum("airtime_util").alias("sum_airtime_util") )
 
         return df_airtime
 
-    def ip_changes_agg(self, df_owl = None, df_restart = None):
+    def ip_changes_agg(self, df_owl = None ):
         
         if df_owl is None:
             df_owl = self.df_owl
