@@ -77,7 +77,7 @@ class wifiKPIAnalysis:
         if ip_change_file_path_template is None:
             ip_change_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/ip_change_daily_df/"
 
-        lookback_days = 4
+        lookback_days = 10
         date_range_list = [(self.date_val - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
         historical_ip_change_df = process_parquet_files_for_date_range(date_range_list, ip_change_file_path_template)
         historical_ip_change_df = historical_ip_change_df.groupby("sn")\
@@ -85,7 +85,7 @@ class wifiKPIAnalysis:
 
         ip_change_cat_df = (
             historical_ip_change_df.withColumn(
-                                            "ip_change_rating",
+                                            "ip_change_category",
                                             F.when(F.col("no_ip_changes") > 6, "Poor")
                                             .when(F.col("no_ip_changes").between(4, 6), "Fair")
                                             .when(F.col("no_ip_changes").between(1, 3), "Good")
@@ -105,15 +105,15 @@ class wifiKPIAnalysis:
         date_range_list = [(self.date_val - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
         historical_airtime_df = process_parquet_files_for_date_range(date_range_list, ip_change_file_path_template)
         historical_airtime_df = historical_airtime_df.groupby("sn")\
-                                                        .agg(F.sum("sum_airtime_util").alias("sum_airtime_util"))
+                                                        .agg(F.sum("no_poor_airtime").alias("no_poor_airtime"))
 
         airtime_df = (
             historical_airtime_df.withColumn(
                                                 "Airtime_Utilization_Category",
-                                                F.when(F.col("sum_airtime_util") > 200, "Poor") 
-                                                 .when((F.col("sum_airtime_util") >= 75) & (F.col("sum_airtime_util") <= 200), "Fair") 
-                                                 .when((F.col("sum_airtime_util") >= 26) & (F.col("sum_airtime_util") <= 74), "Good")  
-                                                 .when(F.col("sum_airtime_util") >= 0, "Excellent") 
+                                                F.when(F.col("no_poor_airtime") > 200, "Poor") 
+                                                 .when((F.col("no_poor_airtime") >= 75) & (F.col("no_poor_airtime") <= 200), "Fair") 
+                                                 .when((F.col("no_poor_airtime") >= 26) & (F.col("no_poor_airtime") <= 74), "Good")  
+                                                 .when(F.col("no_poor_airtime") >= 0, "Excellent") 
                                                  .otherwise("Unknown")  
                                             )
                         )
@@ -159,27 +159,43 @@ class wifiKPIAnalysis:
                                             (col("ap_success_count") / col("ap_total_count")) * 100
                                         )
 
+        df_distinct_rowkey_count = df_sh.groupBy("sn")\
+                                        .agg( F.countDistinct("rowkey").alias("distinct_rowkey_count")  )
+
         son_df = df_bandsteer.join(df_apsteer, on="sn", how="full_outer")\
-                                    .withColumn(
-                                        "success_count",
-                                        F.coalesce(col("band_success_count"), lit(0)) + F.coalesce(col("ap_success_count"), lit(0))
-                                    )\
-                                    .withColumn(
-                                        "failure_count",
-                                        F.coalesce(col("band_failure_count"), lit(0)) + F.coalesce(col("ap_failure_count"), lit(0))
-                                    )\
-                                    .withColumn(
-                                        "total_count",
-                                        F.coalesce(col("band_total_count"), lit(0)) + F.coalesce(col("ap_total_count"), lit(0))
-                                    )\
                             .withColumn(
-                                        "SON_steer_start",
-                                        F.when(F.col("success_count") > 60, "Poor")
-                                        .when((F.col("success_count") >= 31) & (F.col("success_count") <= 60), "Fair")
-                                        .when((F.col("success_count") >= 11) & (F.col("success_count") <= 29), "Good")
-                                        .when((F.col("success_count") >= 1) & (F.col("success_count") <= 10), "Excellent")
+                                "steer_start_count",
+                                F.coalesce(col("band_success_count"), lit(0)) + F.coalesce(col("ap_success_count"), lit(0))
+                            )\
+                            .withColumn(
+                                "steer_failure_count",
+                                F.coalesce(col("band_failure_count"), lit(0)) + F.coalesce(col("ap_failure_count"), lit(0))
+                            )\
+                            .withColumn(
+                                "total_count",
+                                F.coalesce(col("band_total_count"), lit(0)) + F.coalesce(col("ap_total_count"), lit(0))
+                            )\
+                            .withColumn(
+                                        "steer_start_category",
+                                        F.when(F.col("steer_start_count") > 60, "Poor")
+                                        .when((F.col("steer_start_count") >= 31) & (F.col("steer_start_count") <= 60), "Fair")
+                                        .when((F.col("steer_start_count") >= 11) & (F.col("steer_start_count") <= 29), "Good")
+                                        .when((F.col("steer_start_count").isNull() ) | (F.col("steer_start_count") <= 10), "Excellent")
                                         .otherwise("Unknown")
-                                    )
+                                    )\
+                            .join( df_distinct_rowkey_count, "sn" )\
+                            .withColumn(
+                                "steer_start_perHome_count",
+                                F.col("steer_start_count")/F.col("distinct_rowkey_count")
+                            )\
+                            .withColumn(
+                                        "steer_start_perHome_category",
+                                        F.when(F.col("steer_start_perHome_count") > 3, "Poor")
+                                        .when((F.col("steer_start_perHome_count") > 2) & (F.col("steer_start_perHome_count") <= 3), "Fair")
+                                        .when((F.col("steer_start_perHome_count") > 1) & (F.col("steer_start_perHome_count") <= 2), "Good")
+                                        .when((F.col("steer_start_perHome_count").isNull() ) | (F.col("steer_start_perHome_count") <= 1), "Excellent")
+                                        .otherwise("Unknown")
+                            )
 
         return son_df
 
@@ -214,19 +230,19 @@ class wifiKPIAnalysis:
         
         restart_daily_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/restart_daily_df"
         previous_day = self.date_val
-        lookback_days = 4
+        lookback_days = 10
         date_range_list = [(previous_day - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
         historical_restart_daily_df = process_parquet_files_for_date_range(date_range_list, restart_daily_file_path_template)
-        historical_restart_daily_df.groupby("sn")\
-                                    .agg( F.sum("num_mdm_crashes").alias("num_mdm_crashes"),
-                                            F.sum("num_user_reboots").alias("num_user_reboots"),
-                                            F.sum("num_total_reboots").alias("num_total_reboots"),
-                                )\
+        historical_restart_daily_df = historical_restart_daily_df.groupby("sn")\
+                                                                    .agg( F.sum("num_mdm_crashes").alias("mdm_resets_count"),
+                                                                            F.sum("num_user_reboots").alias("user_reboot_count"),
+                                                                            F.sum("num_total_reboots").alias("total_reboots_count"),
+                                                                )\
 
         df_start = historical_restart_daily_df\
-                        .withColumn("reboot_category", categorize_reboots_per_home("num_total_reboots"))\
-                        .withColumn("modem_reset_category", categorize_modem_resets_per_home("num_mdm_crashes"))\
-                        .withColumn("customer_reboot_category", categorize_customer_initiated_reboots("num_user_reboots"))
+                        .withColumn("reboot_category", categorize_reboots_per_home("total_reboots_count"))\
+                        .withColumn("modem_reset_category", categorize_modem_resets_per_home("mdm_resets_count"))\
+                        .withColumn("customer_reboot_category", categorize_customer_initiated_reboots("user_reboot_count"))
         
         return df_start
 
@@ -243,203 +259,267 @@ class wifiKPIAnalysis:
                                         .otherwise(F.col("connect_type"))  
                                     )\
                             .withColumn("signal_strength", F.col("Station_Data_connect_data.signal_strength"))\
-                            .withColumn("airtime_util", F.col("Station_Data_connect_data.airtime_util"))\
+                            .withColumn("byte_send", F.col("Station_Data_connect_data.diff_bs"))\
+                            .withColumn("byte_received", F.col("Station_Data_connect_data.diff_br"))\
                             .filter( col("signal_strength").isNotNull() )\
                             .withColumn("signal_strength_2_4GHz", F.when(F.col("connect_type") == "2_4G", F.col("signal_strength")))\
                             .withColumn("signal_strength_5GHz",  F.when(F.col("connect_type") == "5G", F.col("signal_strength")))\
                             .withColumn("signal_strength_6GHz", F.when(F.col("connect_type") == "6G", F.col("signal_strength")) )\
-                            .select("sn","rowkey","ts","connect_type","signal_strength", "signal_strength_2_4GHz","signal_strength_5GHz","signal_strength_6GHz",)
+                            .select("sn","rowkey","ts","connect_type","signal_strength", "signal_strength_2_4GHz","signal_strength_5GHz","signal_strength_6GHz",
+                                    "byte_send","byte_received")
+        
+        thresholds = {
+                "2_4GHz": {"Poor": -78, "Fair": -71, "Good": -56, },
+                "5GHz": {"Poor": -75, "Fair": -71, "Good": -56, },
+                "6GHz": {"Poor": -70, "Fair": -65, "Good": -56, }
+            }
 
-        window_spec = Window.partitionBy("sn")
 
-        df_grouped = df_flattened.groupBy("sn", "rowkey")\
+        def categorize_signal(df, signal_col, freq_band):
+
+            return df.withColumn(f"category_{freq_band}", F.when(F.col(signal_col) < thresholds[freq_band]["Poor"], "Poor")
+                                                            .when(F.col(signal_col).between(thresholds[freq_band]["Poor"], thresholds[freq_band]["Fair"]), "Fair")
+                                                            .when(F.col(signal_col).between(thresholds[freq_band]["Fair"] - 1, thresholds[freq_band]["Good"]), "Good")
+                                                            .when(F.col(signal_col) > thresholds[freq_band]["Good"], "Excellent")
+                                                            .otherwise("No Data"))
+                
+        df_categorized = categorize_signal(df_flattened, "signal_strength_2_4GHz", "2_4GHz")
+        df_categorized = categorize_signal(df_categorized, "signal_strength_5GHz", "5GHz")
+        df_categorized = categorize_signal(df_categorized, "signal_strength_6GHz", "6GHz")
+
+        df_grouped = df_categorized.groupBy("sn", "rowkey")\
                                     .agg(
-                                        F.count("signal_strength").alias("sample_count"),
+                                            F.count("*").alias("total_count_rssi"),
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Poor", 1).otherwise(0)).alias("poor_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Poor", 1).otherwise(0)).alias("poor_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Poor", 1).otherwise(0)).alias("poor_count_6GHz"),
+                                            
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Fair", 1).otherwise(0)).alias("fair_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Fair", 1).otherwise(0)).alias("fair_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Fair", 1).otherwise(0)).alias("fair_count_6GHz"),
                                         
-                                        F.round(F.avg("signal_strength_2_4GHz"), 2).alias("avg_signal_strength_2_4GHz"),
-                                        F.round(F.avg("signal_strength_5GHz"), 2).alias("avg_signal_strength_5GHz"),
-                                        F.round(F.avg("signal_strength_6GHz"), 2).alias("avg_signal_strength_6GHz"),
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Good", 1).otherwise(0)).alias("good_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Good", 1).otherwise(0)).alias("good_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Good", 1).otherwise(0)).alias("good_count_6GHz"),
                                         
-                                        F.sum(F.when(F.col("connect_type") == "2_4G", 1).otherwise(0)).alias("rssi_count_2_4GHz"),
-                                        F.sum(F.when(F.col("connect_type") == "5G", 1).otherwise(0)).alias("rssi_count_5GHz"),
-                                        F.sum(F.when(F.col("connect_type") == "6G", 1).otherwise(0)).alias("rssi_count_6GHz")
-                                    )\
-                                    .filter(F.col("sample_count") >= 12)\
-                                    .withColumn("distinct_rowkey_count", F.count("rowkey").over(window_spec))
-
-        df_classified = df_grouped.withColumn(
-                                            "RSSI_category_2_4GHz",
-                                            F.when(F.col("avg_signal_strength_2_4GHz") < -78, "Poor")
-                                            .when((F.col("avg_signal_strength_2_4GHz") >= -77) & (F.col("avg_signal_strength_2_4GHz") <= -71), "Fair")
-                                            .when((F.col("avg_signal_strength_2_4GHz") >= -70) & (F.col("avg_signal_strength_2_4GHz") <= -56), "Good")
-                                            .when(F.col("avg_signal_strength_2_4GHz") > -55, "Excellent")
-                                            .otherwise("No Data")
-                                ).withColumn(
-                                            "RSSI_category_5GHz",
-                                            F.when(F.col("avg_signal_strength_5GHz") < -75, "Poor")
-                                            .when((F.col("avg_signal_strength_5GHz") >= -75) & (F.col("avg_signal_strength_5GHz") <= -71), "Fair")
-                                            .when((F.col("avg_signal_strength_5GHz") >= -70) & (F.col("avg_signal_strength_5GHz") <= -56), "Good")
-                                            .when(F.col("avg_signal_strength_5GHz") > -55, "Excellent")
-                                            .otherwise("No Data")
-                                ).withColumn(
-                                            "RSSI_category_6GHz",
-                                            F.when(F.col("avg_signal_strength_6GHz") < -70, "Poor")
-                                            .when((F.col("avg_signal_strength_6GHz") >= -70) & (F.col("avg_signal_strength_6GHz") <= -65), "Fair")
-                                            .when((F.col("avg_signal_strength_6GHz") >= -65) & (F.col("avg_signal_strength_6GHz") <= -56), "Good")
-                                            .when(F.col("avg_signal_strength_6GHz") > -55, "Excellent")
-                                            .otherwise("No Data")
-                                        )
-      
-                                        
-        bands = ["2_4GHz", "5GHz", "6GHz"]
-        categories = ["Poor", "Fair", "Good", "Excellent"]
-        for band in bands:
-            for category in categories:
-                df_classified = df_classified.withColumn(
-                                f"is_{category.lower()}_{band}",
-                                F.when((F.col(f"RSSI_category_{band}") == category) & (F.col(f"rssi_count_{band}") >= 12), 1).otherwise(0)
-                            )
-        df_classified = df_classified.withColumn(
-                                            "final_RSSI_category",
-                                            F.when((F.col("is_poor_2_4GHz") == 1) | (F.col("is_poor_5GHz") == 1) , "Poor")
-                                            .when((F.col("is_fair_2_4GHz") == 1) | (F.col("is_fair_5GHz") == 1) , "Fair")
-                                            .when((F.col("is_good_2_4GHz") == 1) | (F.col("is_good_5GHz") == 1) , "Good")
-                                            .when((F.col("is_excellent_2_4GHz") == 1) | (F.col("is_excellent_5GHz") == 1) , "Excellent")
-                                            .otherwise("No Data")
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_6GHz"),
+                                            F.sum("byte_send").alias("byte_send"),
+                                            F.sum("byte_received").alias("byte_received")
                                         )
 
-        df_with_numeric_rssi = df_classified.withColumn(
-                                                        "numeric_RSSI_category",
-                                                        F.when(F.col("final_RSSI_category") == "Poor", 1)
-                                                        .when(F.col("final_RSSI_category") == "Fair", 2)
-                                                        .when(F.col("final_RSSI_category") == "Good", 3)
-                                                        .when(F.col("final_RSSI_category") == "Excellent", 4)
+        total_volume_window = Window.partitionBy("sn") 
+        df_rowkey_rssi_category = df_grouped.withColumn("rssi_category_rowkey", 
+                                                        F.when(
+                                                                (F.col("poor_count_2_4GHz") >= 12) | (F.col("poor_count_5GHz") >= 12) | (F.col("poor_count_6GHz") >= 12), "Poor")
+                                                                .when((F.col("fair_count_2_4GHz") >= 12) | (F.col("fair_count_5GHz") >= 12) | (F.col("fair_count_6GHz") >= 12), "Fair")
+                                                                .when((F.col("good_count_2_4GHz") >= 12) | (F.col("good_count_5GHz") >= 12) | (F.col("good_count_6GHz") >= 12), "Good")
+                                                                .when((F.col("excellent_count_2_4GHz") >= 12) | (F.col("excellent_count_5GHz") >= 12) | (F.col("excellent_count_6GHz") >= 12), "Excellent")
+                                                                .otherwise("No Data")
+                                                    )\
+                                            .withColumn("volume",F.log( col("byte_send")+col("byte_received") ))\
+                                            .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
+                                            .withColumn("weights", F.col("volume") / F.col("total_volume") )
+    
+        df_rowkey_rssi_numeric = df_rowkey_rssi_category.withColumn(
+                                                                    "rssi_numeric_rowkey",
+                                                                    F.when(F.col("rssi_category_rowkey") == "Poor", 1)
+                                                                    .when(F.col("rssi_category_rowkey") == "Fair", 2)
+                                                                    .when(F.col("rssi_category_rowkey") == "Good", 3)
+                                                                    .when(F.col("rssi_category_rowkey") == "Excellent", 4)
+                                                                )\
+                                                        .groupBy("sn")\
+                                                        .agg(  
+                                                            F.round(F.sum(col("rssi_numeric_rowkey") * col("weights")), 4).alias("rssi_numeric"),  
                                                         )
-        df_final_rssi_category = df_with_numeric_rssi.groupBy("sn")\
-                                                    .agg(F.avg("numeric_RSSI_category").alias("avg_RSSI_score"))\
-                                                    .withColumn(
-                                                                "final_RSSI_category",
-                                                                F.when(F.col("avg_RSSI_score") <= 1.5, "Poor")
-                                                                .when((F.col("avg_RSSI_score") > 1.5) & (F.col("avg_RSSI_score") <= 2.5), "Fair")
-                                                                .when((F.col("avg_RSSI_score") > 2.5) & (F.col("avg_RSSI_score") <= 3.5), "Good")
-                                                                .when(F.col("avg_RSSI_score") > 3.5, "Excellent")
-                                                            )
-        return df_final_rssi_category
+        
+        df_final = df_rowkey_rssi_numeric.withColumn( "RSSI_category", 
+                                                    F.when(F.col("rssi_numeric") <= 1.5, "Poor")\
+                                                    .when((F.col("rssi_numeric") > 1.5) & (F.col("rssi_numeric") <= 2.5), "Fair")\
+                                                    .when((F.col("rssi_numeric") > 2.5) & (F.col("rssi_numeric") <= 3.5), "Good")\
+                                                    .when(F.col("rssi_numeric") > 3.5, "Excellent")  )
+
+        return df_final
     
     def calculate_phyrate(self, df_sh = None):
         if df_sh is None:
             df_sh = self.df_sh
             
-        df_phyrate = df_sh.withColumn("connect_type", F.col("Station_Data_connect_data.connect_type"))\
+        df_flattened = df_sh.withColumn("connect_type", F.col("Station_Data_connect_data.connect_type"))\
                             .withColumn(
                                         "connect_type",
                                         F.when(F.col("connect_type").like("2.4G%"), "2_4G")
                                         .when(F.col("connect_type").like("5G%"), "5G")
                                         .when(F.col("connect_type").like("6G%"), "6G")
-                                        .otherwise(F.col("connect_type"))  # If it doesn't match, leave it as is
+                                        .otherwise(F.col("connect_type"))  
                                     )\
                             .filter( col("connect_type").isin( ["2_4G","5G","6G"]) )\
+                            .withColumn("byte_send", F.col("Station_Data_connect_data.diff_bs"))\
+                            .withColumn("byte_received", F.col("Station_Data_connect_data.diff_br"))\
                             .withColumn("tx_link_rate", F.col("Station_Data_connect_data.tx_link_rate"))\
                             .withColumn("tx_link_rate", F.regexp_replace(F.col("tx_link_rate"), "Mbps", "") )\
                             .withColumn("tx_link_rate_2_4GHz", F.when(F.col("connect_type") == "2_4G", F.col("tx_link_rate")))\
                             .withColumn("tx_link_rate_5GHz",  F.when(F.col("connect_type") == "5G", F.col("tx_link_rate")))\
                             .withColumn("tx_link_rate_6GHz", F.when(F.col("connect_type") == "6G", F.col("tx_link_rate")) )\
-                            .select("sn","rowkey","ts","connect_type","tx_link_rate", "tx_link_rate_2_4GHz","tx_link_rate_5GHz","tx_link_rate_6GHz")
+                            .select("sn","rowkey","ts","connect_type","tx_link_rate", "tx_link_rate_2_4GHz","tx_link_rate_5GHz","tx_link_rate_6GHz",
+                                     "byte_send","byte_received")
 
-        window_spec = Window.partitionBy("sn")
+        thresholds = {
+                "2_4GHz": {"Poor": 80, "Fair": 100, "Good": 120, },
+                "5GHz": {"Poor": 200, "Fair": 300, "Good": 500, },
+                "6GHz": {"Poor": 200, "Fair": 300, "Good": 500, }
+            }
 
-        df_grouped = df_phyrate.groupBy("sn", "rowkey")\
-                                .agg(
-                                    F.count("*").alias("phyrate_count"),
-                                    
-                                    F.round(F.avg("tx_link_rate_2_4GHz"), 2).alias("avg_tx_link_rate_2_4GHz"),
-                                    F.round(F.avg("tx_link_rate_5GHz"), 2).alias("avg_tx_link_rate_5GHz"),
-                                    F.round(F.avg("tx_link_rate_6GHz"), 2).alias("avg_tx_link_rate_6GHz"),
-                                    
-                                    F.sum(F.when(F.col("connect_type") == "2_4G", 1).otherwise(0)).alias("phyrate_count_2_4GHz"),
-                                    F.sum(F.when(F.col("connect_type") == "5G", 1).otherwise(0)).alias("phyrate_count_5GHz"),
-                                    F.sum(F.when(F.col("connect_type") == "6G", 1).otherwise(0)).alias("phyrate_count_6GHz")
-                                )\
-                                .filter(F.col("phyrate_count") >= 12)\
-                                .withColumn("distinct_rowkey_count", F.count("rowkey").over(window_spec))
-        
-        df_classified = df_grouped.withColumn(
-                                    "tx_category_2_4GHz",
-                                    F.when(F.col("avg_tx_link_rate_2_4GHz") < 80, "Poor")
-                                    .when((F.col("avg_tx_link_rate_2_4GHz") >= 80) & (F.col("avg_tx_link_rate_2_4GHz") <= 100), "Fair")
-                                    .when((F.col("avg_tx_link_rate_2_4GHz") >= 101) & (F.col("avg_tx_link_rate_2_4GHz") <= 120), "Good")
-                                    .when(F.col("avg_tx_link_rate_2_4GHz") > 120, "Excellent")
-                                    .otherwise("No Data")  
-                                )\
-                                .withColumn(
-                                    "tx_category_5GHz",
-                                    F.when(F.col("avg_tx_link_rate_5GHz") < 200, "Poor")
-                                    .when((F.col("avg_tx_link_rate_5GHz") >= 200) & (F.col("avg_tx_link_rate_5GHz") <= 350), "Fair")
-                                    .when((F.col("avg_tx_link_rate_5GHz") >= 351) & (F.col("avg_tx_link_rate_5GHz") <= 500), "Good")
-                                    .when(F.col("avg_tx_link_rate_5GHz") > 500, "Excellent")
-                                    .otherwise("No Data")
-                                )
+        def categorize_signal(df, phyrate_col, freq_band):
 
-        bands = ["2_4GHz", "5GHz"]
-        categories = ["Poor", "Fair", "Good", "Excellent"]
+            return df.withColumn(f"category_{freq_band}", F.when(F.col(phyrate_col) < thresholds[freq_band]["Poor"], "Poor")
+                                                            .when(F.col(phyrate_col).between(thresholds[freq_band]["Poor"], thresholds[freq_band]["Fair"]), "Fair")
+                                                            .when(F.col(phyrate_col).between(thresholds[freq_band]["Fair"] + 1, thresholds[freq_band]["Good"]), "Good")
+                                                            .when(F.col(phyrate_col) > thresholds[freq_band]["Good"], "Excellent")
+                                                            .otherwise("No Data"))
+                
+        df_categorized = categorize_signal(df_flattened, "tx_link_rate_2_4GHz", "2_4GHz")
+        df_categorized = categorize_signal(df_categorized, "tx_link_rate_5GHz", "5GHz")
+        df_categorized = categorize_signal(df_categorized, "tx_link_rate_6GHz", "6GHz")
 
-        for band in bands:
-            for category in categories:
-                df_classified = df_classified.withColumn(
-                    f"is_{category.lower()}_{band}",
-                    F.when((F.col(f"tx_category_{band}") == category) & (F.col(f"phyrate_count_{band}") >= 12), 1).otherwise(0)
-                )
-
-        df_classified = df_classified.withColumn(
-                                            "final_phyrate_category",
-                                            F.when((F.col("is_poor_2_4GHz") == 1) | (F.col("is_poor_5GHz") == 1) , "Poor")
-                                            .when((F.col("is_fair_2_4GHz") == 1) | (F.col("is_fair_5GHz") == 1) , "Fair")
-                                            .when((F.col("is_good_2_4GHz") == 1) | (F.col("is_good_5GHz") == 1) , "Good")
-                                            .when((F.col("is_excellent_2_4GHz") == 1) | (F.col("is_excellent_5GHz") == 1) , "Excellent")
-                                            .otherwise("No Data")
+        df_grouped = df_categorized.groupBy("sn", "rowkey")\
+                                    .agg(
+                                            F.sum("byte_send").alias("byte_send"),
+                                            F.sum("byte_received").alias("byte_received"),
+                                            F.count("*").alias("total_count_phyrate"),
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Poor", 1).otherwise(0)).alias("poor_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Poor", 1).otherwise(0)).alias("poor_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Poor", 1).otherwise(0)).alias("poor_count_6GHz"),
+                                            
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Fair", 1).otherwise(0)).alias("fair_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Fair", 1).otherwise(0)).alias("fair_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Fair", 1).otherwise(0)).alias("fair_count_6GHz"),
+                                        
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Good", 1).otherwise(0)).alias("good_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Good", 1).otherwise(0)).alias("good_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Good", 1).otherwise(0)).alias("good_count_6GHz"),
+                                        
+                                            F.sum(F.when(F.col("category_2_4GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_2_4GHz"),
+                                            F.sum(F.when(F.col("category_5GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_5GHz"),
+                                            F.sum(F.when(F.col("category_6GHz") == "Excellent", 1).otherwise(0)).alias("excellent_count_6GHz")
                                         )
 
-        df_with_numeric_phyrate = df_classified.withColumn(
-                                                            "numeric_phyrate_category",
-                                                            F.when(F.col("final_phyrate_category") == "Poor", 1)
-                                                            .when(F.col("final_phyrate_category") == "Fair", 2)
-                                                            .when(F.col("final_phyrate_category") == "Good", 3)
-                                                            .when(F.col("final_phyrate_category") == "Excellent", 4)
+        total_volume_window = Window.partitionBy("sn") 
+        df_rowkey_phyrate_category = df_grouped.withColumn("rowkey_phyrate_category", 
+                                                            F.when(
+                                                                    (F.col("poor_count_2_4GHz") >= 12) | (F.col("poor_count_5GHz") >= 12) | (F.col("poor_count_6GHz") >= 12), "Poor")
+                                                                    .when((F.col("fair_count_2_4GHz") >= 12) | (F.col("fair_count_5GHz") >= 12) | (F.col("fair_count_6GHz") >= 12), "Fair")
+                                                                    .when((F.col("good_count_2_4GHz") >= 12) | (F.col("good_count_5GHz") >= 12) | (F.col("good_count_6GHz") >= 12), "Good")
+                                                                    .when((F.col("excellent_count_2_4GHz") >= 12) | (F.col("excellent_count_5GHz") >= 12) | (F.col("excellent_count_6GHz") >= 12), "Excellent")
+                                                                    .otherwise("No Data")
+                                                        )\
+                                                .withColumn("volume",F.log( col("byte_send")+col("byte_received") ))\
+                                                .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
+                                                .withColumn("weights", F.col("volume") / F.col("total_volume") )
+        
+        df_rowkey_phyrate_numeric = df_rowkey_phyrate_category.withColumn(
+                                                                        "phyrate_numeric",
+                                                                        F.when(F.col("rowkey_phyrate_category") == "Poor", 1)
+                                                                        .when(F.col("rowkey_phyrate_category") == "Fair", 2)
+                                                                        .when(F.col("rowkey_phyrate_category") == "Good", 3)
+                                                                        .when(F.col("rowkey_phyrate_category") == "Excellent", 4)
+                                                                    )\
+                                                        .groupBy("sn")\
+                                                        .agg(  
+                                                            F.round(F.sum(col("phyrate_numeric") * col("weights")), 4).alias("phyrate_numeric"),  
                                                         )
+                                                                    
+        df_final = df_rowkey_phyrate_numeric.withColumn( "phyrate_category", 
+                                                    F.when(F.col("phyrate_numeric") <= 1.5, "Poor")\
+                                                    .when((F.col("phyrate_numeric") > 1.5) & (F.col("phyrate_numeric") <= 2.5), "Fair")\
+                                                    .when((F.col("phyrate_numeric") > 2.5) & (F.col("phyrate_numeric") <= 3.5), "Good")\
+                                                    .when(F.col("phyrate_numeric") > 3.5, "Excellent")  )
+        return df_final
 
+    def calculate_sudden_drop(self, df_sh = None, date_val = None ):
+        
+        if df_sh is None:
+            df_sh = self.df_sh
+        if date_val is None:
+            date_val = self.date_val
+                
+        df = df_sh.withColumn("signal_strength", F.col("Station_Data_connect_data.signal_strength"))\
+                    .filter( col("signal_strength").isNotNull() )
+                
+        partition_columns = ["sn","rowkey"]
+        column_name = "signal_strength"
+        percentiles = [0.03, 0.1, 0.5, 0.9]
+        window_spec = Window().partitionBy(partition_columns) 
 
-        df_final_phyrate_category = df_with_numeric_phyrate.groupBy("sn")\
-                                                            .agg(F.avg("numeric_phyrate_category").alias("avg_phyrate_score"))\
-                                                            .withColumn(
-                                                                "final_phyrate_category",
-                                                                F.when(F.col("avg_phyrate_score") <= 1.5, "Poor")
-                                                                .when((F.col("avg_phyrate_score") > 1.5) & (F.col("avg_phyrate_score") <= 2.5), "Fair")
-                                                                .when((F.col("avg_phyrate_score") > 2.5) & (F.col("avg_phyrate_score") <= 3.5), "Good")
-                                                                .when(F.col("avg_phyrate_score") > 3.5, "Excellent")
-                                                            )
+        three_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[0]})') 
+        ten_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[1]})') 
+        med_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[2]})') 
+        ninety_percentile = F.expr(f'percentile_approx({column_name}, {percentiles[3]})') 
 
-        return df_final_phyrate_category
+        df_outlier = df.withColumn('3%_val', three_percentile.over(window_spec))\
+                        .withColumn('10%_val', ten_percentile.over(window_spec))\
+                        .withColumn('50%_val', med_percentile.over(window_spec))\
+                        .withColumn('90%_val', ninety_percentile.over(window_spec))\
+                        .withColumn("lower_bound", col('10%_val')-2*(  col('90%_val') - col('10%_val') ) )\
+                        .withColumn("outlier", when( col("lower_bound") < col("3%_val"), col("lower_bound")).otherwise( col("3%_val") ))\
+                        .filter(col(column_name) > col("outlier"))
+
+        stationary_daily_df = df_outlier.withColumn("diff", col('90%_val') - col('50%_val') )\
+                                .withColumn("stationarity", when( col("diff")<= 3, lit("1")).otherwise( lit("0") ))\
+                                .groupby(partition_columns).agg(max("stationarity").alias("stationarity"))\
+                                .filter( col("stationarity")>0 )
+
+        df_ts_station = df_sh.join( stationary_daily_df, ["sn","rowkey"])\
+                                .filter( col("rowkey").isNotNull() )\
+                                .groupBy("sn","datetime")\
+                                .agg(  F.count("rowkey").alias("station_cnt") )
+
+        window_spec = Window.partitionBy("sn").orderBy("datetime")
+        df_lagged = df_ts_station.withColumn( "prev_station_cnt",  F.lag("station_cnt").over(window_spec) )\
+                                        .withColumn( "drop_diff", F.col("prev_station_cnt") - F.col("station_cnt") )\
+                                        .filter( F.col("drop_diff") > 3 )
+
+        df_lagged_filtered = df_lagged.withColumn(
+                                                    "drop_diff", F.col("prev_station_cnt") - F.col("station_cnt")
+                                        ).filter(
+                                                F.col("drop_diff") > 3
+                                            )
+
+        df_result = df_lagged_filtered.groupBy("sn")\
+                                        .agg( F.count("drop_diff").alias("no_sudden_drop") )\
+                                        .withColumn( "sudden_drop_category", 
+                                                    F.when(F.col("no_sudden_drop") >= 2, "Poor")\
+                                                    .when( F.col("no_sudden_drop") == 1, "Fair")\
+                                                    .when( F.col("no_sudden_drop").isNull(), "Excellent")\
+                                                    .otherwise("Good")
+                                                )
+
+        return df_result
 
     def run(self):
 
         self.load_data()
+
         ip_change_cat_df = self.calculate_ip_changes()
         son_df = self.calculate_steer()
         df_restart = self.calculate_restart()
         df_rssi = self.calculate_rssi()
         df_phyrate = self.calculate_phyrate()
         df_airtime = self.calculate_airtime()
+        df_sudden_drop = self.calculate_sudden_drop()
 
         df_full_joined = ip_change_cat_df.join(son_df, on="sn", how="full_outer")\
                                         .join(df_restart, on="sn", how="full_outer")\
                                         .join(df_rssi, on="sn", how="full_outer")\
                                         .join(df_phyrate, on="sn", how="full_outer")\
                                         .join(df_airtime, on="sn", how="full_outer")\
+                                        .join(df_sudden_drop, on="sn", how="full_outer")\
                                         .join(self.df_dg, on="sn", how="inner")\
                                         .distinct()
 
         df_full_joined.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
-        
+
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('Zhe_Test')\
