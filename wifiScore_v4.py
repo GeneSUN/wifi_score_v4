@@ -25,7 +25,25 @@ from datetime import timedelta
 
 sys.path.append('/usr/apps/vmas/scripts/ZS') 
 from MailSender import MailSender
-
+def flatten_df_v2(nested_df):
+    # flat the nested columns and return as a new column
+    flat_cols = [c[0] for c in nested_df.dtypes if c[1][:6] != 'struct']
+    nested_cols = [c[0] for c in nested_df.dtypes if c[1][:6] == 'struct']
+    array_cols = [c[0] for c in nested_df.dtypes if c[1][:5] == "array"]
+    #print(len(nested_cols))
+    if len(nested_cols)==0 and len(array_cols)==0 :
+        #print(" dataframe flattening complete !!")
+        return nested_df
+    elif len(nested_cols)!=0:
+        flat_df = nested_df.select(flat_cols +
+                                   [F.col(nc+'.'+c).alias(nc+'_b_'+c)
+                                    for nc in nested_cols
+                                    for c in nested_df.select(nc+'.*').columns])
+        return flatten_df_v2(flat_df)
+    elif len(array_cols)!=0:
+        for array_col in array_cols:
+            flat_df = nested_df.withColumn(array_col, F.explode(F.col(array_col)))
+        return flatten_df_v2(flat_df) 
 def read_file_by_date(date, file_path_pattern): 
     try:
         file_path = file_path_pattern.format(date) 
@@ -33,7 +51,22 @@ def read_file_by_date(date, file_path_pattern):
         return df 
     except:
         return None
+    
+class ScoreCalculator: 
+    def __init__(self, weights): 
+        self.weights = weights 
+ 
+    def calculate_score(self, *args): 
+        total_weight = 0 
+        score = 0 
 
+        for weight, value in zip(self.weights.values(), args): 
+            if value is not None: 
+                score += weight * float(value) 
+                total_weight += weight 
+
+        return score / total_weight if total_weight != 0 else None 
+    
 def process_parquet_files_for_date_range(date_range, file_path_pattern): 
 
     df_list = list(map(lambda date: read_file_by_date(date, file_path_pattern), date_range)) 
@@ -53,14 +86,17 @@ class wifiKPIAnalysis:
         self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
         self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
 
-        self.load_data()
+
 
     def load_data(self):
+        self.model_sn_df = spark.read.parquet( self.deviceGroup_path )\
+                                .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
+                                .select("sn",explode("Group_Data_sys_info"))\
+                                .select("sn",F.col("col.model").alias("model_name") )\
+                                .distinct()
         
         self.df_dg = spark.read.parquet( self.deviceGroup_path )\
-                            .select("rowkey",explode("Group_Data_sys_info"))\
                             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
-                            .select("sn",col("col.model").alias("model_name") )
 
         self.df_owl = spark.read.parquet( self.owl_path )\
                             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)_', 1))\
@@ -70,21 +106,26 @@ class wifiKPIAnalysis:
                             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)_', 1))\
                             .withColumn("datetime", F.from_unixtime(F.col("ts") / 1000).cast("timestamp"))
 
-    def calculate_ip_changes(self, df_owl = None, df_restart = None, ip_change_file_path_template = None):
+    def calculate_ip_changes(self, df_owl = None):
         
         if df_owl is None:
             df_owl = self.df_owl
-        if ip_change_file_path_template is None:
-            ip_change_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/ip_change_daily_df/"
 
-        lookback_days = 1
-        date_range_list = [(self.date_val - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
-        historical_ip_change_df = process_parquet_files_for_date_range(date_range_list, ip_change_file_path_template)
-        historical_ip_change_df = historical_ip_change_df.groupby("sn")\
-                                                        .agg(F.sum("no_ip_changes").alias("no_ip_changes"))
+        window_spec = Window.partitionBy("sn").orderBy("ts")
+
+        ip_change_daily_df = (
+            df_owl.filter(F.col("owl_data_fwa_cpe_data").isNotNull())\
+                    .withColumn("ipv4_ip", F.get_json_object(F.col("Owl_Data_fwa_cpe_data"), "$.ipv4_ip"))\
+                    .filter(F.col("ipv4_ip").isNotNull())\
+                    .withColumn("prev_ip4", F.lag("ipv4_ip").over(window_spec))\
+                    .withColumn("ip_changes_flag",
+                                F.when((F.col("ipv4_ip") != F.col("prev_ip4")) & F.col("prev_ip4").isNotNull(), 1).otherwise(0))
+
+            )
 
         ip_change_cat_df = (
-            historical_ip_change_df.withColumn(
+            ip_change_daily_df.groupby("sn")\
+                                .agg(F.sum("ip_changes_flag").alias("no_ip_changes")).withColumn(
                                             "ip_change_category",
                                             F.when(F.col("no_ip_changes") > 6, "Poor")
                                             .when(F.col("no_ip_changes").between(4, 6), "Fair")
@@ -96,29 +137,44 @@ class wifiKPIAnalysis:
 
         return ip_change_cat_df
 
-    def calculate_airtime(self, ip_change_file_path_template = None):
+    def calculate_airtime(self, df_dg = None):
         
-        if ip_change_file_path_template is None:
-            ip_change_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/airtime_daily_df/"
+        if df_dg is None:
+            df_dg = self.df_dg
 
-        lookback_days = 1
-        date_range_list = [(self.date_val - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
-        historical_airtime_df = process_parquet_files_for_date_range(date_range_list, ip_change_file_path_template)
-        historical_airtime_df = historical_airtime_df.groupby("sn")\
-                                                        .agg(F.sum("no_poor_airtime").alias("no_poor_airtime"))
-
-        airtime_df = (
-            historical_airtime_df.withColumn(
+        airtime_util_history = df_dg.filter( F.col("Group_Diag_History_radio_wifi_info").isNotNull() )\
+                                    .select(
+                                            F.col("sn"),
+                                            F.col("Group_Diag_History_radio_wifi_info.ts").alias("ts"),
+                                            F.col("Group_Diag_History_radio_wifi_info._2_4g.enable").alias("enable"),
+                                            F.col("Group_Diag_History_radio_wifi_info._2_4g.airtime_util").alias("airtime_util")
+                                        )\
+                                    .withColumn(
+                                            "zipped", 
+                                            F.arrays_zip( F.col("ts"),F.col("airtime_util"), F.col("enable"))
+                                        )\
+                                    .withColumn("zipped_explode", F.explode("zipped"))\
+                                    .select(
+                                            "sn",
+                                            F.col("zipped_explode.ts").alias("ts"),
+                                            F.col("zipped_explode.airtime_util").alias("airtime_util"),
+                                            F.col("zipped_explode.enable").alias("enable")
+                                        )\
+                                    .filter( col("enable")==1 )
+        
+        df_airtime = airtime_util_history.groupBy("sn")\
+                                        .agg( F.sum(F.when(F.col("airtime_util") > 70, 1).otherwise(0)).alias("no_poor_airtime") )\
+                                        .withColumn(
                                                 "Airtime_Utilization_Category",
                                                 F.when(F.col("no_poor_airtime") > 200, "Poor") 
                                                  .when((F.col("no_poor_airtime") >= 75) & (F.col("no_poor_airtime") <= 200), "Fair") 
-                                                 .when((F.col("no_poor_airtime") >= 26) & (F.col("no_poor_airtime") <= 74), "Good")  
+                                                 .when((F.col("no_poor_airtime") >= 26) & (F.col("no_poor_airtime") < 75), "Good")  
                                                  .when(F.col("no_poor_airtime") >= 0, "Excellent") 
                                                  .otherwise("Unknown")  
                                             )
-                        )
 
-        return airtime_df
+
+        return df_airtime
 
     def calculate_steer(self, df_sh = None):
         if df_sh is None:
@@ -132,15 +188,8 @@ class wifiKPIAnalysis:
         
         df_bandsteer = df_bandsteer.groupBy("sn")\
                                     .agg(
-                                        count(  when(  (col("action") == "1")&( F.col("sta_type") == "2" ) , True)).alias("band_success_count"),
-                                        count(  when(  (col("action") == "0")&( F.col("sta_type") == "2" ) , True)).alias("band_failure_count"),
-                                        count(  when(  ( F.col("sta_type") == "2" ) , True)).alias("band_total_count"),
-                                    )\
-                                    .withColumn(
-                                                "band_success_percentage",
-                                                (col("band_success_count") / col("band_total_count")) * 100
+                                        count(  when(  (col("action") == "2")&( F.col("sta_type") == "2" ) , True)).alias("band_success_count"),
                                     )
-
 
         df_apsteer = df_sh.select( "sn",
                                     col("Diag_Result_ap_steer.sta_type").alias("sta_type"),
@@ -150,14 +199,9 @@ class wifiKPIAnalysis:
         
         df_apsteer = df_apsteer.groupBy("sn")\
                                 .agg(
-                                    count(  when(  (col("action") == "1")&( F.col("sta_type") == "2" ) , True)).alias("ap_success_count"),
-                                    count(  when(  (col("action") == "0")&( F.col("sta_type") == "2" ) , True)).alias("ap_failure_count"),
-                                    count(  when(  ( F.col("sta_type") == "2" ) , True)).alias("ap_total_count")
-                                )\
-                                .withColumn(
-                                            "ap_success_percentage",
-                                            (col("ap_success_count") / col("ap_total_count")) * 100
-                                        )
+                                    count(  when(  (col("action") == "2")&( F.col("sta_type") == "2" ) , True)).alias("ap_success_count"),
+                                )
+
 
         df_distinct_rowkey_count = df_sh.groupBy("sn")\
                                         .agg( F.countDistinct("rowkey").alias("distinct_rowkey_count")  )
@@ -166,14 +210,6 @@ class wifiKPIAnalysis:
                             .withColumn(
                                 "steer_start_count",
                                 F.coalesce(col("band_success_count"), lit(0)) + F.coalesce(col("ap_success_count"), lit(0))
-                            )\
-                            .withColumn(
-                                "steer_failure_count",
-                                F.coalesce(col("band_failure_count"), lit(0)) + F.coalesce(col("ap_failure_count"), lit(0))
-                            )\
-                            .withColumn(
-                                "total_count",
-                                F.coalesce(col("band_total_count"), lit(0)) + F.coalesce(col("ap_total_count"), lit(0))
                             )\
                             .withColumn(
                                         "steer_start_category",
@@ -209,7 +245,7 @@ class wifiKPIAnalysis:
             return F.when(F.col(column) >= 5, "Poor")\
                     .when(F.col(column) == 4, "Fair")\
                     .when((F.col(column) >= 2) & (F.col(column) <= 3), "Good")\
-                    .when(F.col(column) >= 1, "Excellent")\
+                    .when(F.col(column) >= 0, "Excellent")\
                     .when(F.col(column).isNull(), "Excellent")\
                     .otherwise(None)
 
@@ -218,7 +254,7 @@ class wifiKPIAnalysis:
             return F.when(F.col(column) >= 5, "Poor")\
                     .when(F.col(column) == 4, "Fair")\
                     .when((F.col(column) >= 2) & (F.col(column) <= 3), "Good")\
-                    .when(F.col(column) >= 1, "Excellent")\
+                    .when(F.col(column) >= 0, "Excellent")\
                     .when(F.col(column).isNull(), "Excellent")\
                     .otherwise(None)
 
@@ -230,24 +266,35 @@ class wifiKPIAnalysis:
                     .when(F.col(column) == 0, "Excellent")\
                     .when(F.col(column).isNull(), "Excellent")\
                     .otherwise(None)
-        
-        restart_daily_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/restart_daily_df"
-        previous_day = self.date_val
-        lookback_days = 1
-        date_range_list = [(previous_day - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(lookback_days)]
-        historical_restart_daily_df = process_parquet_files_for_date_range(date_range_list, restart_daily_file_path_template)
-        historical_restart_daily_df = historical_restart_daily_df.groupby("sn")\
-                                                                    .agg( F.sum("num_mdm_crashes").alias("mdm_resets_count"),
-                                                                            F.sum("num_user_reboots").alias("user_reboot_count"),
-                                                                            F.sum("num_total_reboots").alias("total_reboots_count"),
-                                                                )\
+                
+        df_modem_crash = df_owl.filter( (F.col("owl_data_modem_event").isNotNull()) )\
+                                .groupBy("sn") \
+                                .agg(F.count("*").alias("num_mdm_crashes"))
 
-        df_start = historical_restart_daily_df\
-                        .withColumn("reboot_category", categorize_reboots_per_home("total_reboots_count"))\
-                        .withColumn("modem_reset_category", categorize_modem_resets_per_home("mdm_resets_count"))\
-                        .withColumn("customer_reboot_category", categorize_customer_initiated_reboots("user_reboot_count"))
-        
-        return df_start
+        df_user_rbt = df_owl.filter(col("Diag_Result_dev_restart").isNotNull())\
+                            .withColumn("reason", F.col("Diag_Result_dev_restart.reason"))\
+                            .filter(col("reason").isin(["GUI","APP","BTN"]) )\
+                            .groupby("sn")\
+                            .agg( F.count("*").alias("num_user_reboots"))
+
+        df_total_rbt = df_owl.filter(col("Diag_Result_dev_restart").isNotNull())\
+                            .withColumn("reason", F.col("Diag_Result_dev_restart.reason"))\
+                            .groupby("sn")\
+                            .agg( F.count("*").alias("num_total_reboots"))
+
+        df_restart = df_modem_crash.join(df_user_rbt, on=["sn"], how="full_outer")\
+                                .join(df_total_rbt, on=["sn"], how="full_outer")\
+                                .na.fill(0, subset=["num_mdm_crashes","num_user_reboots","num_total_reboots"])
+
+        df_restart = df_restart.groupby("sn")\
+                                    .agg( F.sum("num_mdm_crashes").alias("mdm_resets_count"),
+                                            F.sum("num_user_reboots").alias("user_reboot_count"),
+                                            F.sum("num_total_reboots").alias("total_reboots_count"),
+                                        )\
+                                    .withColumn("reboot_category", categorize_reboots_per_home("total_reboots_count"))\
+                                    .withColumn("modem_reset_category", categorize_modem_resets_per_home("mdm_resets_count"))\
+                                    .withColumn("customer_reboot_category", categorize_customer_initiated_reboots("user_reboot_count"))
+        return df_restart
 
     def calculate_rssi(self, df_sh = None):
         if df_sh is None:
@@ -377,12 +424,12 @@ class wifiKPIAnalysis:
         def categorize_signal(df, phyrate_col, freq_band):
     
             return df.withColumn(f"category_{freq_band}", 
-                F.when(F.col(phyrate_col) < thresholds[freq_band]["Poor"], "Poor")
-                .when((F.col(phyrate_col) >= thresholds[freq_band]["Poor"]) & (F.col(phyrate_col) < thresholds[freq_band]["Fair"]), "Fair")
-                .when((F.col(phyrate_col) >= thresholds[freq_band]["Fair"]) & (F.col(phyrate_col) < thresholds[freq_band]["Good"]), "Good")
-                .when(F.col(phyrate_col) >= thresholds[freq_band]["Good"], "Excellent")
-                .otherwise("No Data")
-)
+                                    F.when(F.col(phyrate_col) < thresholds[freq_band]["Poor"], "Poor")
+                                    .when((F.col(phyrate_col) >= thresholds[freq_band]["Poor"]) & (F.col(phyrate_col) < thresholds[freq_band]["Fair"]), "Fair")
+                                    .when((F.col(phyrate_col) >= thresholds[freq_band]["Fair"]) & (F.col(phyrate_col) < thresholds[freq_band]["Good"]), "Good")
+                                    .when(F.col(phyrate_col) >= thresholds[freq_band]["Good"], "Excellent")
+                                    .otherwise("No Data")
+                                    )
 
 
         df_categorized = categorize_signal(df_flattened, "tx_link_rate_2_4GHz", "2_4GHz")
@@ -498,9 +545,8 @@ class wifiKPIAnalysis:
 
         return df_result
 
-    def run(self):
+    def join_all(self):
 
-        self.load_data()
 
         ip_change_cat_df = self.calculate_ip_changes()
         son_df = self.calculate_steer()
@@ -510,21 +556,90 @@ class wifiKPIAnalysis:
         df_airtime = self.calculate_airtime()
         df_sudden_drop = self.calculate_sudden_drop()
 
-        categories_to_replace = ["customer_reboot_category", "reboot_category","modem_reset_category"]
-        numerics_to_replace = ["user_reboot_count","total_reboots_count","mdm_resets_count"]
-        df_full_joined = ip_change_cat_df.join(son_df, on="sn", how="full_outer")\
+        categories_to_replace = ["ip_change_category",  
+                                 "steer_start_category","steer_start_perHome_category",
+                                "customer_reboot_category", "reboot_category","modem_reset_category",
+                                 "sudden_drop_category",
+                                 "RSSI_category",
+                                 "phyrate_numeric","no_poor_airtime"]
+        numerics_to_replace = ["no_ip_changes",
+                               "steer_start_count","steer_start_perHome_count",
+                                "user_reboot_count","total_reboots_count","mdm_resets_count",
+                               "no_sudden_drop",
+                               "rssi_numeric",
+                               "phyrate_category","Airtime_Utilization_Category"]
+        
+        self.df_full_joined = ip_change_cat_df.join(son_df, on="sn", how="full_outer")\
                                         .join(df_restart, on="sn", how="full_outer")\
                                         .join(df_rssi, on="sn", how="full_outer")\
                                         .join(df_phyrate, on="sn", how="full_outer")\
                                         .join(df_airtime, on="sn", how="full_outer")\
                                         .join(df_sudden_drop, on="sn", how="full_outer")\
-                                        .join(self.df_dg, on="sn", how="inner")\
                                         .distinct()\
                                         .withColumn("day", F.lit(F.date_format(F.lit(self.date_val), "MM-dd-yyyy")))\
                                         .na.fill("Excellent", subset=categories_to_replace)\
-                                        
+                                        .na.fill(0, subset=numerics_to_replace)\
+                                        .join(self.model_sn_df, "sn" )
+        
 
-        df_full_joined.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
+    def get_score(self):
+        self.load_data()
+        self.join_all()
+        df_numeric = self.df_full_joined
+        # convert categorical to numerical
+        def convert_to_numeric(df, col_name):
+            return df.withColumn(f"{col_name}_numeric", F.when(F.col(col_name) == "Poor", 1)
+                                                        .when(F.col(col_name) == "Fair", 2)
+                                                        .when(F.col(col_name) == "Good", 3)
+                                                        .when(F.col(col_name) == "Excellent", 4)
+                                                        .otherwise(None))
+        def convert_to_categorical(df, col_name):
+            return df.withColumn(col_name, 
+                                F.when(F.col(col_name) < 1.5, "Poor")
+                                .when((F.col(col_name) >= 1.5) & (F.col(col_name) < 2.5), "Fair")
+                                .when((F.col(col_name) >= 2.5) & (F.col(col_name) < 3.5), "Good")
+                                .when(F.col(col_name) >= 3.5, "Excellent")
+                                .otherwise(None))
+        
+        categorical_columns = [
+                                    "ip_change_category", "steer_start_category", "steer_start_perHome_category",
+                                    "customer_reboot_category", "reboot_category", "modem_reset_category", "sudden_drop_category",
+                                    "RSSI_category", "phyrate_category", "Airtime_Utilization_Category"
+                                ]
+
+        for col in categorical_columns:
+            df_numeric = convert_to_numeric(df_numeric, col)
+
+        reliability_weights = { 
+                            "ip_change_category_numeric": 0.142, 
+                            
+                            "steer_start_category_numeric": 0.142, 
+                            "steer_start_perHome_category_numeric": 0.142, 
+                            
+                            "customer_reboot_category_numeric":0.142,
+                            "reboot_category_numeric":0.142,
+                            "modem_reset_category_numeric":0.142,
+                            
+                            "sudden_drop_category_numeric":0.142
+                            } 
+        score_calculator_reliability = ScoreCalculator(reliability_weights) 
+        reliability_score_udf = udf(score_calculator_reliability.calculate_score, FloatType()) 
+
+        speed_weights = { 
+                            "phyrate_category_numeric": 0.5, 
+                            "Airtime_Utilization_Category_numeric": 0.5, 
+                            }
+        score_calculator_speed = ScoreCalculator(speed_weights) 
+        speed_score_udf = udf(score_calculator_speed.calculate_score, FloatType()) 
+
+        df_score = df_numeric.withColumn("reliabilityScore", F.round( reliability_score_udf(*[F.col(c) for c in list( reliability_weights.keys() ) ] ),2) )\
+                            .withColumn("speedScore", F.round( speed_score_udf(*[F.col(c) for c in list( speed_weights.keys() ) ] ),2) )\
+                            .withColumn( "coverageScore", F.col("RSSI_category") )
+        
+        for col in ["reliabilityScore","speedScore"]:
+            df_score = convert_to_categorical(df_score, col)
+
+        df_score.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
 
 if __name__ == "__main__":
@@ -550,8 +665,10 @@ if __name__ == "__main__":
                 continue
 
             try:
+
                 analysis = wifiKPIAnalysis(date_val=date_val)
-                analysis.run()
+                analysis.get_score()
+
             except Exception as e:
                 print(e)
                 email_sender.send(
