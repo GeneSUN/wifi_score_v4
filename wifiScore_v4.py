@@ -532,14 +532,16 @@ class wifiKPIAnalysis:
                                  "steer_start_category","steer_start_perHome_category",
                                 "customer_reboot_category", "reboot_category","modem_reset_category",
                                  "sudden_drop_category",
-                                 "RSSI_category",
-                                 "phyrate_numeric","no_poor_airtime"]
+                                 #"RSSI_category",
+                                 #"phyrate_category",
+                                 "Airtime_Utilization_Category"]
         numerics_to_replace = ["no_ip_changes",
                                "steer_start_count","steer_start_perHome_count",
                                 "user_reboot_count","total_reboots_count","mdm_resets_count",
                                "no_sudden_drop",
-                               "rssi_numeric",
-                               "phyrate_category","Airtime_Utilization_Category"]
+                               #"rssi_numeric",
+                               #"phyrate_numeric",
+                               "no_poor_airtime",]
         
         self.df_full_joined = ip_change_cat_df.join(son_df, on="sn", how="full_outer")\
                                         .join(df_restart, on="sn", how="full_outer")\
@@ -653,7 +655,7 @@ if __name__ == "__main__":
                 analysis.get_score()
 
             except Exception as e:
-                error_message = ( f"vmb_spark_wifi Non-Prod failed at {file_date}\n\n{traceback.format_exc()}" )
+                error_message = ( f"wifiScore v4 failed at {file_date}\n\n{traceback.format_exc()}" )
                 print(error_message)
                 email_sender.send(
                                     send_from=f"wifiKPIAnalysis@verizon.com",
