@@ -606,25 +606,26 @@ class wifiKPIAnalysis:
         score_calculator_speed = ScoreCalculator(speed_weights) 
         speed_score_udf = udf(score_calculator_speed.calculate_score, FloatType()) 
 
-        score_weights = { 
-                            "reliabilityScore": 0.33, 
-                            "speedScore": 0.33, 
-                            "coverageScore": 0.33, 
-                            }
-        score_calculator_total = ScoreCalculator(score_weights) 
-        wifi_score_udf = udf(score_calculator_total.calculate_score, FloatType()) 
+        from pyspark.sql.types import StringType
+        def worst_score(reliabilityScore, speedScore, coverageScore):
 
+            # Find the score with the lowest priority number (which is the worst)
+            score_priority = {"Poor": 1, "Fair": 2, "Good": 3, "Excellent": 4, None: 5}            
+            scores = [reliabilityScore, speedScore, coverageScore]
+            worst = min(scores, key=lambda x: score_priority[x])
+            
+            return worst
+        worst_score_udf = F.udf(worst_score, StringType())
 
         df_score = df_numeric.withColumn("reliabilityScore", F.round( reliability_score_udf(*[F.col(c) for c in list( reliability_weights.keys() ) ] ),2) )\
                             .withColumn("speedScore", F.round( speed_score_udf(*[F.col(c) for c in list( speed_weights.keys() ) ] ),2) )\
                             .withColumn( "coverageScore", F.col("rssi_numeric") )\
-                            .withColumn("wifiScore", F.round( wifi_score_udf(*[F.col(c) for c in list( score_weights.keys() ) ] ),2) )\
-
+                            .withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
         
         for col in ["reliabilityScore","speedScore","coverageScore","wifiScore"]:
             df_score = convert_to_categorical(df_score, col)
 
-        df_score.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
+        df_score.drop.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
 
 if __name__ == "__main__":
