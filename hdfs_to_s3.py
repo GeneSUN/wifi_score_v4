@@ -1,7 +1,35 @@
 from pyspark.sql import SparkSession
-
+from pyspark.sql.functions import sum, lag, col, split, concat_ws, lit ,udf,count, max,lit,avg, when,concat_ws,to_date,explode
+from pyspark.sql.types import *
+from pyspark.sql.types import FloatType
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 import subprocess
 import traceback
+
+def rename_hdfs_file(source_path, target_path):
+    """
+    Rename a file in HDFS.
+
+    Args:
+        source_path (str): The current HDFS path of the file, including the file name.
+        target_path (str): The new HDFS path of the file, including the new file name.
+    """
+    try:
+        # HDFS command to rename (move) the file
+        mv_cmd = f"hdfs dfs -mv {source_path} {target_path}"
+        
+        # Execute the command
+        process = subprocess.Popen(mv_cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        
+        # Check for errors
+        if process.returncode != 0:
+            print(f"Error renaming file in HDFS: {stderr.decode('utf-8')}")
+        else:
+            print(f"File renamed successfully from {source_path} to {target_path}")
+    except Exception as e:
+        print(f"Exception occurred: {str(e)}")
 
 def check_hdfs_files(path, filename): 
     # check if file exists
@@ -40,7 +68,6 @@ def check_aws_files(path, filename):
         text1 = text1 + str(e) + "\n" 
         print(text1) 
         return False 
-import subprocess
 
 def push_hdfs_to_s3(hdfs_path, hdfs_file, s3_path, s3_file):
     """
@@ -102,20 +129,48 @@ def push_hdfs_to_s3(hdfs_path, hdfs_file, s3_path, s3_file):
         print(message)
         text += message + "\n"
 
-
-
 if __name__ == "__main__":
 
     spark = SparkSession.builder.appName('Zhe_wifiscore_Test')\
                         .config("spark.ui.port","24045")\
                         .getOrCreate()
+
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
+    parquet_file = "/user/ZheS/wifi_score_v4/KPI/2024-09-25"
+    output_path = "/user/ZheS/wifi_score_v4/sample/"
+    target_path = "/user/ZheS/wifi_score_v4/sample/2024-09-25.csv"
 
     hdfs_path = hdfs_pd+"//user/ZheS/wifi_score_v4//"
     hdfs_file = "sample"
     s3_path = "s3a://prod-bhr-backup/whw_data/sha_ml_dt_wifi_score/"
-    s3_file = "sample"
+    s3_file = "2024-09-25"
+
+    models = ['ASK-NCQ1338', 'ASK-NCQ1338FA', 'WNC-CR200A', "CR1000A","CR1000B"]
+
+    spark.read.parquet(parquet_file)\
+        .filter( F.col("model_name").isin( models ) )\
+        .coalesce(1).write.csv(output_path, header=True, mode = "overwrite")
+        
+    import subprocess
+    import os
+
+    result = subprocess.run(["hdfs", "dfs", "-ls", output_path], capture_output=True, text=True)
+    file_list = result.stdout.splitlines()
+
+    csv_file = None
+    for line in file_list:
+        if line.endswith(".csv"):
+            csv_file = line.split()[-1]
+        elif line.endswith("_SUCCESS"):
+            success_file = line.split()[-1]
+
+    if success_file:
+        subprocess.run(["hdfs", "dfs", "-rm", success_file])
+    print(f"CSV file: {csv_file}")
+
+    rename_hdfs_file(csv_file, target_path)
+
 
     print( check_hdfs_files(hdfs_path, hdfs_file) )
     print( check_aws_files(s3_path, s3_file) )
