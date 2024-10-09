@@ -611,6 +611,7 @@ class wifiKPIAnalysis:
                             .withColumn( "coverageScore", F.col("rssi_numeric") )
                                     
         for col in ["reliabilityScore","speedScore","coverageScore"]:
+            df_score = df_score.withColumn(f"numerical_{col}", F.col(col).cast('double'))
             df_score = convert_to_categorical(df_score, col)
 
 
