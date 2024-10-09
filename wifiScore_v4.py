@@ -616,13 +616,24 @@ class wifiKPIAnalysis:
 
 
         from pyspark.sql.types import StringType
+        # Define the function to find the worst score
         def worst_score(reliabilityScore, speedScore, coverageScore):
-
-            # Find the score with the lowest priority number (which is the worst)
-            score_priority = {"Poor": 1, "Fair": 2, "Good": 3, "Excellent": 4, None: 5}            
-            scores = [reliabilityScore, speedScore, coverageScore]
-            worst = min(scores, key=lambda x: score_priority[x])
+            # Define the priority mapping
+            score_priority = {"Poor": 1, "Fair": 2, "Good": 3, "Excellent": 4, None: 5}    
             
+            # Create a list of scores and filter out None values
+            scores = [reliabilityScore, speedScore, coverageScore]
+            valid_scores = [score for score in scores if score is not None]
+            
+            # If there are no valid scores, return None
+            if not valid_scores:
+                return None
+            
+            # Find the score with the lowest priority number (the worst score)
+            worst = valid_scores[0]
+            for score in valid_scores[1:]:
+                if score_priority[score] < score_priority[worst]:
+                    worst = score
             return worst
         worst_score_udf = F.udf(worst_score, StringType())
 
