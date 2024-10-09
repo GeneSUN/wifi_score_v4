@@ -136,17 +136,20 @@ if __name__ == "__main__":
                         .getOrCreate()
 
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
-    hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
-    parquet_file = "/user/ZheS/wifi_score_v4/KPI/2024-09-25"
-    output_path = "/user/ZheS/wifi_score_v4/sample/"
-    target_path = "/user/ZheS/wifi_score_v4/sample/2024-09-25.csv"
+    hdfs_pa = 'hdfs://njbbepapa1.nss.vzwnet.com:9000'
 
-    hdfs_path = hdfs_pd+"//user/ZheS/wifi_score_v4//"
+    date = "2024-10-08"
+
+    parquet_file = f"/user/ZheS/wifi_score_v4/KPI/{date}"
+    output_path = f"/user/ZheS/wifi_score_v4/sample/"
+    target_path = f"/user/ZheS/wifi_score_v4/sample/{date}.csv"
+
+    hdfs_path = hdfs_pd + "/user/ZheS/wifi_score_v4/"
     hdfs_file = "sample"
     s3_path = "s3a://prod-bhr-backup/whw_data/sha_ml_dt_wifi_score/"
-    s3_file = "2024-09-25"
+    s3_file = date
 
-    models = ['ASK-NCQ1338', 'ASK-NCQ1338FA', 'WNC-CR200A', "CR1000A","CR1000B"]
+    models = ['ASK-NCQ1338', 'ASK-NCQ1338FA', 'WNC-CR200A', "CR1000A", "CR1000B"]
 
     spark.read.parquet(parquet_file)\
         .filter( F.col("model_name").isin( models ) )\
