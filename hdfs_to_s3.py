@@ -139,15 +139,16 @@ if __name__ == "__main__":
     hdfs_pa = 'hdfs://njbbepapa1.nss.vzwnet.com:9000'
 
     date = "2024-10-08"
+    date_compact = "20241008"
 
-    parquet_file = f"/user/ZheS/wifi_score_v4/KPI/{date}"
-    output_path = f"/user/ZheS/wifi_score_v4/sample/"
-    target_path = f"/user/ZheS/wifi_score_v4/sample/{date}.csv"
+    parquet_file = hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{date}"
+    output_path = hdfs_pd + f"/user/ZheS/wifi_score_v4/aws/{date_compact}"
+    target_path = hdfs_pd + f"/user/ZheS/wifi_score_v4/aws/{date_compact}/wifiscore.csv"
 
-    hdfs_path = hdfs_pd + "/user/ZheS/wifi_score_v4/"
-    hdfs_file = "sample"
-    s3_path = "s3a://prod-bhr-backup/whw_data/sha_ml_dt_wifi_score/"
-    s3_file = date
+    hdfs_path = hdfs_pd + "/user/ZheS/wifi_score_v4/aws/"
+    hdfs_file = f"{date_compact}"
+    s3_path = "s3a://prod-bhr-backup/whw_data/sha_ml_dt_wifi_score_v1//"
+    s3_file = f"{date_compact}"
 
     models = ['ASK-NCQ1338', 'ASK-NCQ1338FA', 'WNC-CR200A', "CR1000A", "CR1000B"]
 
