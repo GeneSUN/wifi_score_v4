@@ -638,8 +638,6 @@ class wifiKPIAnalysis:
         worst_score_udf = F.udf(worst_score, StringType())
 
         df_score = df_score.withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
-        df_score = convert_to_categorical(df_score, "wifiScore")
-
 
         df_score.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
