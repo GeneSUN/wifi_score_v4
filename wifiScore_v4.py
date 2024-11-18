@@ -441,7 +441,7 @@ class wifiKPIAnalysis:
                                                         )\
                                                 .withColumn("volume",F.log( col("byte_send")+col("byte_received") ))\
                                                 .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
-                                                .withColumn("weights", F.col("volume") / F.col("total_volume") )
+                                                .withColumn("weights", F.col("volume") / F.col("total_volume") ) # station weights
         
         df_rowkey_phyrate_numeric = df_rowkey_phyrate_category.withColumn(
                                                                         "phyrate_numeric",
