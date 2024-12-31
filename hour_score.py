@@ -358,7 +358,7 @@ if __name__ == "__main__":
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
 
-    date_val = (date.today() - timedelta(7) )
+    date_val = (date.today() - timedelta(1) )
     analysis = wifiKPIAnalysis(date_val=date_val)
     analysis.load_data()
     analysis.calculate_steer().show()
