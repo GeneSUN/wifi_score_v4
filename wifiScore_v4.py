@@ -642,7 +642,7 @@ class wifiKPIAnalysis:
         df_score.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
 if __name__ == "__main__":
-    spark = SparkSession.builder.appName('Zhe_Test')\
+    spark = SparkSession.builder.appName('Zhe_wifi_score')\
                         .config("spark.ui.port","24045")\
                         .getOrCreate()
     email_sender = MailSender()
