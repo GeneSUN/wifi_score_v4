@@ -89,8 +89,8 @@ class wifiKPIAnalysis:
     def load_data(self):
         self.model_sn_df = spark.read.parquet( self.deviceGroup_path )\
                                 .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
-                                .select("sn",explode("Group_Data_sys_info"))\
-                                .select("sn",F.col("col.model").alias("model_name") )\
+                                .select("sn",explode("Group_Data_sys_info"), col("Tplg_Data_fw_ver").alias("firmware"))\
+                                .select("sn",F.col("col.model").alias("model_name"),"firmware" )\
                                 .distinct()
         
         self.df_dg = spark.read.parquet( self.deviceGroup_path )\
@@ -343,7 +343,31 @@ class wifiKPIAnalysis:
                                             .withColumn("volume",F.log( col("byte_send")+col("byte_received") ))\
                                             .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
                                             .withColumn("weights", F.col("volume") / F.col("total_volume") )
-    
+        try:
+            df_sh = self.df_sh.select( "rowkey",
+                                        col("Station_Data_connect_data.station_name").alias("station_name"),
+                                        col("Station_Data_connect_data.connect_type").alias("connect_type"), 
+                                            )\
+                    .withColumn("sn", F.regexp_extract("rowkey", r"([A-Z]+\d+)", 1))\
+                    .withColumn(
+                            "connect_type",
+                            F.when(F.col("connect_type").like("2.4G%"), "2_4G")
+                            .when(F.col("connect_type").like("5G%"), "5G")
+                            .when(F.col("connect_type").like("6G%"), "6G")
+                            .otherwise(F.col("connect_type"))  
+                        )\
+                    .distinct()
+
+
+            df_rowkey_rssi_category.join(df_sh, ["sn","rowkey"], "left") \
+                                    .withColumn(
+                                                    "date", lit(self.date_val.strftime('%Y-%m-%d')))\
+                                    .write\
+                                    .mode("overwrite")\
+                                    .parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_rssi_category/{(self.date_val).strftime('%Y-%m-%d')}")
+        
+        except:
+            print( "failed df_rowkey_rssi_category")
         df_rowkey_rssi_numeric = df_rowkey_rssi_category.withColumn(
                                                                     "rssi_numeric_rowkey",
                                                                     F.when(F.col("rssi_category_rowkey") == "Poor", 1)
@@ -442,7 +466,33 @@ class wifiKPIAnalysis:
                                                 .withColumn("volume",F.log( col("byte_send")+col("byte_received") ))\
                                                 .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
                                                 .withColumn("weights", F.col("volume") / F.col("total_volume") )
-        
+        try:
+            df_sh = self.df_sh.select( "rowkey",
+                                        col("Station_Data_connect_data.station_name").alias("station_name"),
+                                        col("Station_Data_connect_data.connect_type").alias("connect_type"), 
+                                            )\
+                    .withColumn("sn", F.regexp_extract("rowkey", r"([A-Z]+\d+)", 1))\
+                    .withColumn(
+                            "connect_type",
+                            F.when(F.col("connect_type").like("2.4G%"), "2_4G")
+                            .when(F.col("connect_type").like("5G%"), "5G")
+                            .when(F.col("connect_type").like("6G%"), "6G")
+                            .otherwise(F.col("connect_type"))  
+                        )\
+                    .distinct()
+
+
+            df_rowkey_phyrate_category.join(df_sh, ["sn","rowkey"], "left") \
+                                        .withColumn(
+                                                    "date", lit(self.date_val.strftime('%Y-%m-%d')))\
+                                        .write.mode("overwrite")\
+                                        .parquet(
+                                                f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_phyrate_category/{self.date_val.strftime('%Y-%m-%d')}"
+                                            )
+
+        except:
+            print( "failed df_rowkey_rssi_category")
+
         df_rowkey_phyrate_numeric = df_rowkey_phyrate_category.withColumn(
                                                                         "phyrate_numeric",
                                                                         F.when(F.col("rowkey_phyrate_category") == "Poor", 1)
@@ -667,6 +717,28 @@ if __name__ == "__main__":
 
                 analysis = wifiKPIAnalysis(date_val=date_val)
                 analysis.get_score()
+                
+                # location
+                location_df = spark.read.option("recursiveFileLookup", "true")\
+                                        .parquet(hdfs_pd + "/user/ZheS/wifi_score_v4/County_location")\
+                                        .select("sn","mdn","state","county", "latitude", "longitude")\
+                                        .distinct()\
+                                        .drop("wifiScore")
+
+                df_wifi = spark.read.parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}")
+
+                df_wifi.join(location_df, "sn")\
+                    .write.mode("overwrite")\
+                    .parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/wifiScore_location/{file_date}")
+
+                # hdfs file
+                parquet_file = hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}"
+                output_path = hdfs_pd + f"/user/ZheS/wifi_score_v4/aws/{file_date}"
+                models = ['ASK-NCQ1338', 'ASK-NCQ1338FA',"XCI55AX", 'WNC-CR200A', 'ASK-NCM1100', "CR1000A", "CR1000B"]
+
+                spark.read.parquet(parquet_file)\
+                    .filter( F.col("model_name").isin( models ) )\
+                    .write.csv(output_path, header=True, mode = "overwrite")
 
             except Exception as e:
                 error_message = ( f"wifiScore v4 failed at {file_date}\n\n{traceback.format_exc()}" )
