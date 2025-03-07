@@ -88,10 +88,14 @@ class wifiKPIAnalysis:
 
     def load_data(self):
         self.model_sn_df = spark.read.parquet( self.deviceGroup_path )\
-                                .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
-                                .select("sn",explode("Group_Data_sys_info"), col("Tplg_Data_fw_ver").alias("firmware"))\
-                                .select("sn",F.col("col.model").alias("model_name"),"firmware" )\
-                                .distinct()
+                                .withColumn("features", explode("Group_Data_sys_info"))\
+                                .select(
+                                    "features.sn",
+                                    col("features.model").alias("model_name"),
+                                    col("Tplg_Data_fw_ver").alias("firmware")
+                                )\
+                                .distinct()\
+                                .groupBy("sn", "model").agg(F.max("firmware").alias("firmware"))
         
         self.df_dg = spark.read.parquet( self.deviceGroup_path )\
                             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
@@ -344,22 +348,28 @@ class wifiKPIAnalysis:
                                             .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
                                             .withColumn("weights", F.col("volume") / F.col("total_volume") )
         try:
-            df_sh = self.df_sh.select( "rowkey",
-                                        col("Station_Data_connect_data.station_name").alias("station_name"),
-                                        col("Station_Data_connect_data.connect_type").alias("connect_type"), 
-                                            )\
-                    .withColumn("sn", F.regexp_extract("rowkey", r"([A-Z]+\d+)", 1))\
-                    .withColumn(
-                            "connect_type",
-                            F.when(F.col("connect_type").like("2.4G%"), "2_4G")
-                            .when(F.col("connect_type").like("5G%"), "5G")
-                            .when(F.col("connect_type").like("6G%"), "6G")
-                            .otherwise(F.col("connect_type"))  
-                        )\
-                    .distinct()
+            window_spec = Window.partitionBy("sn", "rowkey").orderBy(F.desc("count"))
+
+            self.df_connectType = self.df_sh.select( "rowkey",
+                                                                col("Station_Data_connect_data.station_name").alias("station_name"),
+                                                                col("Station_Data_connect_data.connect_type").alias("connect_type"), 
+                                                                    )\
+                                            .withColumn("sn", F.regexp_extract("rowkey", r"([A-Z]+\d+)", 1))\
+                                            .withColumn(
+                                                    "connect_type",
+                                                    F.when(F.col("connect_type").like("2.4G%"), "2_4G")
+                                                    .when(F.col("connect_type").like("5G%"), "5G")
+                                                    .when(F.col("connect_type").like("6G%"), "6G")
+                                                    .otherwise(F.col("connect_type"))  
+                                                )\
+                                            .filter(F.col("station_name").isNotNull() & F.col("connect_type").isNotNull())\
+                                            .groupBy("sn", "rowkey", "connect_type", "station_name").count()\
+                                            .withColumn("rank", F.rank().over(window_spec))\
+                                            .filter(F.col("rank") == 1).drop("rank", "count")
 
 
-            df_rowkey_rssi_category.join(df_sh, ["sn","rowkey"], "left") \
+
+            df_rowkey_rssi_category.join(self.df_connectType, ["sn","rowkey"], "left") \
                                     .withColumn(
                                                     "date", lit(self.date_val.strftime('%Y-%m-%d')))\
                                     .write\
@@ -467,22 +477,7 @@ class wifiKPIAnalysis:
                                                 .withColumn("total_volume", F.sum("volume").over(total_volume_window))\
                                                 .withColumn("weights", F.col("volume") / F.col("total_volume") )
         try:
-            df_sh = self.df_sh.select( "rowkey",
-                                        col("Station_Data_connect_data.station_name").alias("station_name"),
-                                        col("Station_Data_connect_data.connect_type").alias("connect_type"), 
-                                            )\
-                    .withColumn("sn", F.regexp_extract("rowkey", r"([A-Z]+\d+)", 1))\
-                    .withColumn(
-                            "connect_type",
-                            F.when(F.col("connect_type").like("2.4G%"), "2_4G")
-                            .when(F.col("connect_type").like("5G%"), "5G")
-                            .when(F.col("connect_type").like("6G%"), "6G")
-                            .otherwise(F.col("connect_type"))  
-                        )\
-                    .distinct()
-
-
-            df_rowkey_phyrate_category.join(df_sh, ["sn","rowkey"], "left") \
+            df_rowkey_phyrate_category.join(self.df_connectType, ["sn","rowkey"], "left") \
                                         .withColumn(
                                                     "date", lit(self.date_val.strftime('%Y-%m-%d')))\
                                         .write.mode("overwrite")\
@@ -738,7 +733,9 @@ if __name__ == "__main__":
 
                 spark.read.parquet(parquet_file)\
                     .filter( F.col("model_name").isin( models ) )\
-                    .write.csv(output_path, header=True, mode = "overwrite")
+                    .drop("firmware")\
+                    .write.mode("overwrite")\
+                    .parquet(output_path)
 
             except Exception as e:
                 error_message = ( f"wifiScore v4 failed at {file_date}\n\n{traceback.format_exc()}" )
