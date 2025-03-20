@@ -95,7 +95,7 @@ class wifiKPIAnalysis:
                                     col("Tplg_Data_fw_ver").alias("firmware")
                                 )\
                                 .distinct()\
-                                .groupBy("sn", "model").agg(F.max("firmware").alias("firmware"))
+                                .groupBy("sn", "model_name").agg(F.max("firmware").alias("firmware"))
         
         self.df_dg = spark.read.parquet( self.deviceGroup_path )\
                             .withColumn("sn", F.regexp_extract(F.col("rowkey"), r'-(\w+)', 1))\
@@ -722,7 +722,8 @@ if __name__ == "__main__":
 
                 df_wifi = spark.read.parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}")
 
-                df_wifi.join(location_df, "sn")\
+                df_wifi.withColumn("rowkey", F.concat(F.substring("sn", -4, 4), lit("-"), "sn"))\
+                    .join(location_df, "sn","left")\
                     .write.mode("overwrite")\
                     .parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/wifiScore_location/{file_date}")
 
