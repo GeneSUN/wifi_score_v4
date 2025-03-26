@@ -21,9 +21,13 @@ class wifiKPIAggregator:
 
     def __init__(self, date_val):
         self.date_val = date_val
-        self.owl_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/OWLHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
-        self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
-        self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        #self.owl_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/OWLHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        #self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        #self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ (date_val + timedelta(1)).strftime('%Y%m%d')  }"
+        self.owl_path = f"{hdfs_pa}/sha_data/OWLHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.station_history_path = f"{hdfs_pa}/sha_data/StationHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.deviceGroup_path = f"{hdfs_pa}/sha_data/DeviceGroups/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        
         self.load_data()
         self.ip_change_daily_df = self.ip_changes_agg()
         self.restart_daily_df = self.restart_agg()
@@ -72,8 +76,10 @@ class wifiKPIAggregator:
                                         )\
                                     .filter( col("enable")==1 )
 
-        df_airtime = airtime_util_history.groupby("sn")\
-                                        .agg( F.sum("airtime_util").alias("sum_airtime_util") )
+        df_airtime = airtime_util_history.groupBy("sn")\
+                                        .agg(
+                                            F.sum(F.when(F.col("airtime_util") > 70, 1).otherwise(0)).alias("no_poor_airtime")
+                                        )
 
         return df_airtime
 
