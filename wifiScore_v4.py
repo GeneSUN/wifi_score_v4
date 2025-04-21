@@ -82,9 +82,9 @@ class wifiKPIAnalysis:
 
     def __init__(self, date_val):
         self.date_val = date_val
-        self.owl_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/OWLHistory/{ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
-        self.station_history_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/StationHistory/{ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
-        self.deviceGroup_path = f"{hdfs_pd}/usr/apps/vmas/sha_data/bhrx_hourly_data/DeviceGroups/{ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.owl_path = f"{hdfs_pa}/sha_data/OWLHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.station_history_path = f"{hdfs_pa}/sha_data/StationHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.deviceGroup_path = f"{hdfs_pa}/sha_data/DeviceGroups/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
 
     def load_data(self):
         self.model_sn_df = spark.read.parquet( self.deviceGroup_path )\
