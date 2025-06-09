@@ -684,7 +684,8 @@ class wifiKPIAnalysis:
 
         df_score = df_score.withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
 
-        df_score.write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
+        df_score.filter( col("sn")!="G402121101548133" )\
+                .write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('Zhe_wifi_score')\
