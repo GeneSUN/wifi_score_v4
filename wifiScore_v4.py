@@ -465,6 +465,11 @@ class wifiKPIAnalysis:
                                         )
 
         total_volume_window = Window.partitionBy("sn") 
+        #If any "poor" count (for any band) is 12 or more, label as "Poor".
+        #If not, and any "fair" count is 12 or more, label as "Fair".
+        #If not, and any "good" count is 12 or more, label as "Good".
+        #If not, and any "excellent" count is 12 or more, label as "Excellent".
+        #If none of these counts are at least 12, label as "No Data".
         df_rowkey_phyrate_category = df_grouped.withColumn("rowkey_phyrate_category", 
                                                             F.when(
                                                                     (F.col("poor_count_2_4GHz") >= 12) | (F.col("poor_count_5GHz") >= 12) | (F.col("poor_count_6GHz") >= 12), "Poor")
@@ -485,9 +490,10 @@ class wifiKPIAnalysis:
                                                 f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_phyrate_category/{self.date_val.strftime('%Y-%m-%d')}"
                                             )
 
-        except:
-            print( "failed df_rowkey_rssi_category")
-
+        except Exception as e:
+            error_message = ( f"df_rowkey_rssi_category v4 failed at {e}" )
+            print(error_message)
+        
         df_rowkey_phyrate_numeric = df_rowkey_phyrate_category.withColumn(
                                                                         "phyrate_numeric",
                                                                         F.when(F.col("rowkey_phyrate_category") == "Poor", 1)
@@ -626,8 +632,8 @@ class wifiKPIAnalysis:
                                     "RSSI_category", "phyrate_category", "Airtime_Utilization_Category"
                                 ]
 
-        for col in categorical_columns:
-            df_numeric = convert_to_numeric(df_numeric, col)
+        for col_name in categorical_columns:
+            df_numeric = convert_to_numeric(df_numeric, col_name)
 
         reliability_weights = { 
                             "ip_change_category_numeric": 0.142, 
@@ -655,9 +661,9 @@ class wifiKPIAnalysis:
                             .withColumn("speedScore", F.round( speed_score_udf(*[F.col(c) for c in list( speed_weights.keys() ) ] ),2) )\
                             .withColumn( "coverageScore", F.col("rssi_numeric") )
                                     
-        for col in ["reliabilityScore","speedScore","coverageScore"]:
-            df_score = df_score.withColumn(f"numerical_{col}", F.col(col).cast('double'))
-            df_score = convert_to_categorical(df_score, col)
+        for col_name in ["reliabilityScore","speedScore","coverageScore"]:
+            df_score = df_score.withColumn(f"numerical_{col_name}", F.col(col_name).cast('double'))
+            df_score = convert_to_categorical(df_score, col_name)
 
 
         from pyspark.sql.types import StringType
@@ -684,7 +690,7 @@ class wifiKPIAnalysis:
 
         df_score = df_score.withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
 
-        df_score.filter( col("sn")!="G402121101548133" )\
+        df_score.filter( F.col("sn")!="G402121101548133" )\
                 .write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
 
 if __name__ == "__main__":
