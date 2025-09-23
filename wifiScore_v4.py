@@ -735,7 +735,7 @@ if __name__ == "__main__":
     
     backfill_range = 1
     parser = argparse.ArgumentParser(description="Inputs") 
-    parser.add_argument("--date", default=(date.today() - timedelta(0) ).strftime("%Y-%m-%d")) 
+    parser.add_argument("--date", default=(date.today() - timedelta(1) ).strftime("%Y-%m-%d")) 
     args_date = parser.parse_args().date
     date_list = [( datetime.strptime( args_date, "%Y-%m-%d" )  - timedelta(days=i)).date() for i in range(backfill_range)][::-1]
 
