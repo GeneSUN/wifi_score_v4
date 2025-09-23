@@ -75,16 +75,50 @@ def process_parquet_files_for_date_range(date_range, file_path_pattern):
 
     return result_df 
 
+def replace_rows(base_df: DataFrame, update_df: DataFrame, key_col: str = "sn") -> DataFrame:
+    """
+    Replace rows in base_df with rows from update_df when key_col matches.
+
+    Args:
+        base_df (DataFrame): Original dataframe (full but possibly outdated).
+        update_df (DataFrame): Dataframe containing newer rows (partial).
+        key_col (str): Column name to use as the unique identifier.
+
+    Returns:
+        DataFrame: Combined dataframe with rows from update_df replacing base_df.
+    """
+    # customers to update
+    update_keys = update_df.select(key_col).distinct()
+
+    # keep only rows in base_df that are not in update_df
+    base_remaining = base_df.join(update_keys, on=key_col, how="left_anti")
+
+    # union the updated rows
+    final_df = base_remaining.unionByName(update_df)
+
+    return final_df
+
 class wifiKPIAnalysis:
     global hdfs_pd, hdfs_pa
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
 
-    def __init__(self, date_val):
+    def __init__(self,
+                 date_val,
+                 owl_path,
+                 station_history_path,
+                 deviceGroup_path,
+                 df_rssi_path,
+                 df_phyrate_path,
+                 wifiscore_path,
+                 ):
         self.date_val = date_val
-        self.owl_path = f"{hdfs_pa}/sha_data/OWLHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
-        self.station_history_path = f"{hdfs_pa}/sha_data/StationHistory/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
-        self.deviceGroup_path = f"{hdfs_pa}/sha_data/DeviceGroups/date={ (date_val+timedelta(1)).strftime('%Y%m%d')  }"
+        self.owl_path = owl_path
+        self.station_history_path = station_history_path
+        self.deviceGroup_path = deviceGroup_path
+        self.df_rssi_path = df_rssi_path
+        self.df_phyrate_path = df_phyrate_path
+        self.wifiscore_path = wifiscore_path
 
     def load_data(self):
         self.model_sn_df = spark.read.parquet( self.deviceGroup_path )\
@@ -249,7 +283,7 @@ class wifiKPIAnalysis:
                     .when(F.col(column) == 0, "Excellent")\
                     .when(F.col(column).isNull(), "Excellent")\
                     .otherwise(None)
-                
+
         restart_daily_file_path_template = hdfs_pd + "/user/ZheS/wifi_score_v4/time_window/{}/restart_daily_df/"
         previous_day = self.date_val
         lookback_days = 30
@@ -374,7 +408,7 @@ class wifiKPIAnalysis:
                                                     "date", lit(self.date_val.strftime('%Y-%m-%d')))\
                                     .write\
                                     .mode("overwrite")\
-                                    .parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_rssi_category/{(self.date_val).strftime('%Y-%m-%d')}")
+                                    .parquet( self.df_rssi_path  )
         
         except:
             print( "failed df_rowkey_rssi_category")
@@ -487,7 +521,7 @@ class wifiKPIAnalysis:
                                                     "date", lit(self.date_val.strftime('%Y-%m-%d')))\
                                         .write.mode("overwrite")\
                                         .parquet(
-                                                f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_phyrate_category/{self.date_val.strftime('%Y-%m-%d')}"
+                                                self.df_phyrate_path 
                                             )
 
         except Exception as e:
@@ -605,7 +639,7 @@ class wifiKPIAnalysis:
                                         .na.fill("Excellent", subset=categories_to_replace)\
                                         .na.fill(0, subset=numerics_to_replace)\
                                         .join(self.model_sn_df, "sn" )
-        
+
 
     def get_score(self):
         self.load_data()
@@ -691,7 +725,7 @@ class wifiKPIAnalysis:
         df_score = df_score.withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
 
         df_score.filter( F.col("sn")!="G402121101548133" )\
-                .write.mode("overwrite").parquet(f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{(self.date_val).strftime('%Y-%m-%d')}")
+                .write.mode("overwrite").parquet(self.wifiscore_path)
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('Zhe_wifi_score')\
@@ -699,9 +733,9 @@ if __name__ == "__main__":
                         .getOrCreate()
     email_sender = MailSender()
     
-    backfill_range = 4
+    backfill_range = 1
     parser = argparse.ArgumentParser(description="Inputs") 
-    parser.add_argument("--date", default=(date.today() - timedelta(1) ).strftime("%Y-%m-%d")) 
+    parser.add_argument("--date", default=(date.today() - timedelta(0) ).strftime("%Y-%m-%d")) 
     args_date = parser.parse_args().date
     date_list = [( datetime.strptime( args_date, "%Y-%m-%d" )  - timedelta(days=i)).date() for i in range(backfill_range)][::-1]
 
@@ -709,17 +743,78 @@ if __name__ == "__main__":
     def process_kpi_data(date_list, email_sender):
         for date_val in date_list:
             file_date = date_val.strftime('%Y-%m-%d')
-            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{file_date}"
+            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/crsp_wifiscore/{file_date}"
 
             if hadoop_fs.exists(spark._jvm.org.apache.hadoop.fs.Path(file_path)):
                 print(f"data for {file_date} already exists.")
                 continue
 
             try:
+                date_compact = file_date.replace("-", "")
 
-                analysis = wifiKPIAnalysis(date_val=date_val)
-                analysis.get_score()
-                
+                # Define paths directly with globals
+                env_configs = {
+                    "crsp": {
+                        "owl_path":        f"{hdfs_pa}/sha_data/OWLHistory/date={date_compact}",
+                        "station_history": f"{hdfs_pa}/sha_data/StationHistory/date={date_compact}",
+                        "deviceGroup":     f"{hdfs_pa}/sha_data/DeviceGroups/date={date_compact}",
+                        "df_rssi":         f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/crsp_df_rowkey_rssi_category/{file_date}",
+                        "df_phyrate":      f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/crsp_df_rowkey_phyrate_category/{file_date}",
+                        "wifiscore":       f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/crsp_wifiscore/{file_date}"
+                    },
+                    "pac": {
+                        "owl_path":        f"{hdfs_pa}/sha_data/purple_prod/bhrx_owlhistory/date={date_compact}",
+                        "station_history": f"{hdfs_pa}/sha_data/purple_prod/bhrx_stationhistory/date={date_compact}",
+                        "deviceGroup":     f"{hdfs_pa}/sha_data/purple_prod/bhrx_devicegroups/date={date_compact}",
+                        "df_rssi":         f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/pac_df_rowkey_rssi_category/{file_date}",
+                        "df_phyrate":      f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/pac_df_rowkey_phyrate_category/{file_date}",
+                        "wifiscore":       f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/pac_wifiscore/{file_date}"
+                    },
+                    "all": {
+                        "df_rssi":         f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_rssi_category/{file_date}",
+                        "df_phyrate":      f"{hdfs_pd}/user/ZheS/wifi_score_v4/df_rowkey_phyrate_category/{file_date}",
+                        "wifiscore":       f"{hdfs_pd}/user/ZheS/wifi_score_v4/KPI/{file_date}"
+                    },
+
+                }
+
+                # Loop over the selected environments
+                for env in  ["crsp", "pac"]:
+                    cfg = env_configs[env]
+                    analysis = wifiKPIAnalysis(
+                        date_val=date_val,
+                        owl_path=cfg["owl_path"],
+                        station_history_path=cfg["station_history"],
+                        deviceGroup_path=cfg["deviceGroup"],
+                        df_rssi_path=cfg["df_rssi"],
+                        df_phyrate_path=cfg["df_phyrate"],
+                        wifiscore_path=cfg["wifiscore"]
+                    )
+                    analysis.get_score()
+                    print(cfg["wifiscore"])
+
+                try:
+                    base_df = spark.read.parquet( env_configs["crsp"]["df_rssi"] )
+                    update_df = spark.read.parquet( env_configs["pac"]["df_rssi"] )
+                    replace_rows(base_df, update_df, "rowkey" ).write.mode("overwrite").parquet(env_configs["all"]["df_rssi"])
+                except:
+                    spark.read.parquet( env_configs["crsp"]["df_rssi"] ).write.mode("overwrite").parquet(env_configs["all"]["df_rssi"])
+
+                try:
+                    base_df = spark.read.parquet( env_configs["crsp"]["df_phyrate"] )
+                    update_df = spark.read.parquet( env_configs["pac"]["df_phyrate"] )
+                    replace_rows(base_df, update_df, "rowkey" ).write.mode("overwrite").parquet(env_configs["all"]["df_phyrate"])
+                except:
+                    spark.read.parquet( env_configs["crsp"]["df_rssi"] ).write.mode("overwrite").parquet(env_configs["all"]["df_phyrate"])
+
+                try:
+                    base_df = spark.read.parquet( env_configs["crsp"]["wifiscore"] )
+                    update_df = spark.read.parquet( env_configs["pac"]["wifiscore"] )
+                    replace_rows(base_df, update_df, "sn" ).write.mode("overwrite").parquet(env_configs["all"]["wifiscore"])
+                except:
+                    spark.read.parquet( env_configs["crsp"]["wifiscore"] ).write.mode("overwrite").parquet(env_configs["all"]["wifiscore"])
+
+                                
                 # location
                 location_df = spark.read.option("recursiveFileLookup", "true")\
                                         .parquet(hdfs_pd + "/user/ZheS/wifi_score_v4/County_location")\
@@ -730,9 +825,9 @@ if __name__ == "__main__":
                 df_wifi = spark.read.parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}")
 
                 df_wifi.withColumn("rowkey", F.concat(F.substring("sn", -4, 4), lit("-"), "sn"))\
-                    .join(location_df, "sn","left")\
-                    .write.mode("overwrite")\
-                    .parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/wifiScore_location/{file_date}")
+                        .join(location_df, "sn","left")\
+                        .write.mode("overwrite")\
+                        .parquet(hdfs_pd + f"/user/ZheS/wifi_score_v4/wifiScore_location/{file_date}")
 
                 # hdfs file
                 parquet_file = hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}"
@@ -744,7 +839,7 @@ if __name__ == "__main__":
                     .drop("firmware")\
                     .write.mode("overwrite")\
                     .parquet(output_path)
-
+                """                """
             except Exception as e:
                 error_message = ( f"wifiScore v4 failed at {file_date}\n\n{traceback.format_exc()}" )
                 print(error_message)
