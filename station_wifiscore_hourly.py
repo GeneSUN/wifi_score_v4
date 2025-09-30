@@ -68,20 +68,25 @@ class wifi_score_hourly:
                  date_str,
                  hour_str,
                  source_df,
+                 station_history_path = hdfs_pa + f"/sha_data/StationHistory/",
+                 device_groups_path = hdfs_pa + f"/sha_data/DeviceGroups/",
                  output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/"
                  ):
         self.data_consumption_df = None
         self.date_str = date_str
         self.hour_str = hour_str
         self.source_df = source_df
+        self.station_history_path = station_history_path
+        self.device_groups_path = device_groups_path
         self.output_path = output_path
 
     def read_data_consumption(self, date_part, hour_part):
-        
-        spark.read.parquet( hdfs_pa + f"//sha_data/StationHistory/date={date_part}/hour={hour_part}" )\
-            .withColumn("date", F.lit(date_part))\
-            .withColumn("hour", F.lit(hour_part))\
-            .createOrReplaceTempView('bhrx_stationhistory_version_001')
+        spark.read.parquet(
+            f"{self.station_history_path}/date={date_part}/hour={hour_part}"
+        )\
+         .withColumn("date", F.lit(date_part))\
+         .withColumn("hour", F.lit(hour_part))\
+         .createOrReplaceTempView('bhrx_stationhistory_version_001')
             
         print(f"Reading data consumption for date={date_part}, hour={hour_part}")
         
@@ -107,9 +112,8 @@ class wifi_score_hourly:
         """
         
         data_consumption_df = spark.sql(data_consumption_query)
-        print("\n--- First 5 rows of the data consumption DataFrame (head) ---")
-        data_consumption_df.show(5)
-        print(f"Data consumption rows: {data_consumption_df.count()}")
+
+
         return data_consumption_df
 
     def calculate_speed_score(self, source_df, data_consumption_df):
@@ -404,10 +408,13 @@ class wifi_score_hourly:
 
     def calculate_reliability_score(self, date_part, hour_part):
 
-        spark.read.parquet( hdfs_pa + f"//sha_data/DeviceGroups/date={date_part}/hour={hour_part}" )\
+        spark.read.parquet(
+            f"{self.device_groups_path}/date={date_part}/hour={hour_part}"
+        )\
             .withColumn("date", F.lit(date_part))\
             .withColumn("hour", F.lit(hour_part))\
             .createOrReplaceTempView('bhrx_devicegroups_version_001')
+
 
         reliability_query = f"""
                                 SELECT
@@ -429,8 +436,7 @@ class wifi_score_hourly:
                             """
         
         reliability_df = spark.sql(reliability_query)
-        print(f"\n--- First 5 rows of reliability_df (from SQL for date={date_part}, hour={hour_part}) ---")
-        reliability_df.show(5)
+
 
         reliability_score_df = reliability_df.withColumn(
             "reliability_score_num",
