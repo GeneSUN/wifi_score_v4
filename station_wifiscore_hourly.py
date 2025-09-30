@@ -23,17 +23,58 @@ from datetime import datetime, timedelta
 from pyspark.sql import SparkSession, functions as F, Window
 from datetime import timedelta
 
+import time
+class LogTime:
+    def __init__(self, verbose=True, minimum_unit="microseconds") -> None:
+        self.minimum_unit = minimum_unit
+        self.elapsed = None
+        self.verbose = verbose
+
+    def __enter__(self):
+        self.start = time.time()
+        return self
+
+    def __exit__(self, *args):
+        self.elapsed = time.time() - self.start
+        self.elapsed_str = self._format_time(self.elapsed)
+        if self.verbose:
+            print(f"Time Elapsed: {self.elapsed_str}")
+
+    def _format_time(self, seconds: float) -> str:
+        """
+        Convert seconds into a human-readable string.
+        """
+        if seconds < 1e-3:  # less than 1 ms
+            return f"{seconds*1e6:.2f} µs"
+        elif seconds < 1:   # less than 1 second
+            return f"{seconds*1e3:.2f} ms"
+        elif seconds < 60:  # less than 1 minute
+            return f"{seconds:.2f} s"
+        elif seconds < 3600:  # less than 1 hour
+            m, s = divmod(seconds, 60)
+            return f"{int(m)}m {s:.2f}s"
+        else:
+            h, r = divmod(seconds, 3600)
+            m, s = divmod(r, 60)
+            return f"{int(h)}h {int(m)}m {s:.2f}s"
+
+
 
 class wifi_score_hourly:
-    global hdfs_pa
+    global hdfs_pd, hdfs_pa
+    hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
     def __init__(self,
                  date_str,
                  hour_str,
+                 source_df,
+                 output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/"
                  ):
         self.data_consumption_df = None
         self.date_str = date_str
         self.hour_str = hour_str
+        self.source_df = source_df
+        self.output_path = output_path
 
     def read_data_consumption(self, date_part, hour_part):
         
@@ -402,8 +443,8 @@ class wifi_score_hourly:
 
     def run(self):
         self.data_consumption_df = self.read_data_consumption(self.date_str, str(self.hour_str).zfill(2))
-        self.coverage_score_df = self.calculate_coverage_score(source_df, self.data_consumption_df)
-        self.speed_score_df = self.calculate_speed_score(source_df, self.data_consumption_df)
+        self.coverage_score_df = self.calculate_coverage_score(self.source_df, self.data_consumption_df)
+        self.speed_score_df = self.calculate_speed_score(self.source_df, self.data_consumption_df)
         self.reliability_score_df = self.calculate_reliability_score(self.date_str, str(self.hour_str).zfill(2))
 
         wifi_score_df = self.speed_score_df.alias("s").join(
@@ -498,7 +539,7 @@ class wifi_score_hourly:
                 """
             )
 
-        wifi_score_df.write.parquet(f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/{self.date_str}/{self.hour_str}")
+        wifi_score_df.write.parquet(f"{self.output_path}/{self.date_str}/{self.hour_str}")
 
 
 if __name__ == "__main__":
@@ -507,15 +548,19 @@ if __name__ == "__main__":
                         .getOrCreate()
 
     
-    date_str = "20250924"
+    date_str = "20250930"
     hour_str = "10"
 
-    
-    source_df = spark.read.parquet( hdfs_pa + "/sha_data/vz-bhr-athena/bhr_station_connection_hourly_report/date=20250924" )\
-                .withColumn(
-                                "date", 
-                                F.to_date(F.col("execution_ts"), "yyyyMMdd_HHmmss")
-                            )
-    
-    ins = wifi_score_hourly( date_str, hour_str )
-    ins.run()
+
+    station_connection_df = spark.read.parquet( hdfs_pa + f"/sha_data/vz-bhr-athena/bhr_station_connection_hourly_report/date={date_str}/hour={hour_str}" )\
+                                .withColumn("date", F.lit(date_str))\
+                                .withColumn("hour", F.lit(hour_str))
+
+    ins = wifi_score_hourly( date_str, 
+                            hour_str, 
+                            station_connection_df,
+                            output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/{date_str}/{hour_str}"
+                             )
+
+    with LogTime() as timer:
+        ins.run()
