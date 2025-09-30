@@ -539,7 +539,7 @@ class wifi_score_hourly:
                 """
             )
 
-        wifi_score_df.write.parquet(f"{self.output_path}/{self.date_str}/{self.hour_str}")
+        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/{self.date_str}/{self.hour_str}")
 
 
 if __name__ == "__main__":
