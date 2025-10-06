@@ -65,6 +65,7 @@ class wifi_score_hourly:
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
     def __init__(self,
+                 spark, 
                  date_str,
                  hour_str,
                  source_df,
@@ -72,6 +73,7 @@ class wifi_score_hourly:
                  device_groups_path = hdfs_pa + f"/sha_data/DeviceGroups/",
                  output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/"
                  ):
+        self.spark = spark
         self.data_consumption_df = None
         self.date_str = date_str
         self.hour_str = hour_str
@@ -81,7 +83,7 @@ class wifi_score_hourly:
         self.output_path = output_path
 
     def read_data_consumption(self, date_part, hour_part):
-        spark.read.parquet(
+        self.spark.read.parquet(
             f"{self.station_history_path}/date={date_part}/hour={hour_part}"
         )\
          .withColumn("date", F.lit(date_part))\
@@ -110,8 +112,8 @@ class wifi_score_hourly:
             HAVING SUM(CAST(station_data_connect_data.bs AS DECIMAL(38, 0)) +
             CAST(station_data_connect_data.br AS DECIMAL(38, 0))) < 1875000000;
         """
-        
-        data_consumption_df = spark.sql(data_consumption_query)
+
+        data_consumption_df = self.spark.sql(data_consumption_query)
 
 
         return data_consumption_df
@@ -119,7 +121,7 @@ class wifi_score_hourly:
     def calculate_speed_score(self, source_df, data_consumption_df):
         source_df.createOrReplaceTempView('station_hourly_data_speed')
 
-        station_hourly_data_with_count = spark.sql('''
+        station_hourly_data_with_count = self.spark.sql('''
             SELECT
                 *,
                 COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour) as record_count
@@ -130,7 +132,7 @@ class wifi_score_hourly:
         #station_hourly_data_with_count.cache()
         station_hourly_data_with_count.createOrReplaceTempView('station_hourly_data_cached_speed')
 
-        combined_base_score = spark.sql('''
+        combined_base_score = self.spark.sql('''
             WITH
             pivoted_data AS (
                 SELECT
@@ -216,7 +218,7 @@ class wifi_score_hourly:
 
         output_df_with_weighted_base = output_df_with_weighted_base.drop("rank_per_sn", "avg_t_per_sn", "avg_b_per_sn")
 
-        variation_cal = spark.sql('''
+        variation_cal = self.spark.sql('''
             WITH
             variation_components AS (
                 SELECT
@@ -261,24 +263,24 @@ class wifi_score_hourly:
         )
 
         #station_hourly_data_with_count.unpersist()
-        spark.catalog.dropTempView('station_hourly_data_cached_speed')
+        self.spark.catalog.dropTempView('station_hourly_data_cached_speed')
         return final_speed_score_df
 
     def calculate_coverage_score(self, source_df, data_consumption_df):
         source_df.createOrReplaceTempView('station_hourly_data_coverage')
 
-        station_hourly_data_with_count = spark.sql('''
+        station_hourly_data_with_count = self.spark.sql('''
             SELECT
                 *,
                 COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour) as record_count
             FROM station_hourly_data_coverage
         ''')
-        spark.catalog.dropTempView('station_hourly_data_coverage')
+        self.spark.catalog.dropTempView('station_hourly_data_coverage')
 
         #station_hourly_data_with_count.cache()
         station_hourly_data_with_count.createOrReplaceTempView('station_hourly_data_cached_coverage')
 
-        combined_base_score = spark.sql('''
+        combined_base_score = self.spark.sql('''
             WITH
             pivoted_data AS (
                 SELECT
@@ -363,7 +365,7 @@ class wifi_score_hourly:
 
         output_df_with_weighted_base = output_df_with_weighted_base.drop("rank_per_sn", "avg_t_per_sn", "avg_b_per_sn")
 
-        variation_cal = spark.sql('''
+        variation_cal = self.spark.sql('''
             WITH
             variation_components AS (
                 SELECT
@@ -403,12 +405,12 @@ class wifi_score_hourly:
         )
 
         #station_hourly_data_with_count.unpersist()
-        spark.catalog.dropTempView('station_hourly_data_cached_coverage')
+        self.spark.catalog.dropTempView('station_hourly_data_cached_coverage')
         return final_coverage_score_df
 
     def calculate_reliability_score(self, date_part, hour_part):
 
-        spark.read.parquet(
+        self.spark.read.parquet(
             f"{self.device_groups_path}/date={date_part}/hour={hour_part}"
         )\
             .withColumn("date", F.lit(date_part))\
@@ -434,8 +436,8 @@ class wifi_score_hourly:
                                 GROUP BY
                                     t1.date, t1.hour, regexp_extract(t1.rowkey, '-([^-_]+)', 1)
                             """
-        
-        reliability_df = spark.sql(reliability_query)
+
+        reliability_df = self.spark.sql(reliability_query)
 
 
         reliability_score_df = reliability_df.withColumn(
@@ -562,8 +564,9 @@ if __name__ == "__main__":
                                 .withColumn("date", F.lit(date_str))\
                                 .withColumn("hour", F.lit(hour_str))
 
-    ins = wifi_score_hourly( date_str, 
-                            hour_str, 
+    ins = wifi_score_hourly(spark,
+                            date_str,
+                            hour_str,
                             station_connection_df,
                             output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/{date_str}/{hour_str}"
                              )
