@@ -171,7 +171,6 @@ class StationConnectionProcessor:
         return final_df
 
 
-
 class station_score_hourly:
     global hdfs_pd, hdfs_pa
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
