@@ -111,9 +111,9 @@ However, the reality of the data ingestion pipeline makes this extremely difficu
 
 At :10 and :40, assume all three datasets have produced at least one batch of new data and run the scoring job.
 
-❌ not truly real-time
-❌ If any source is delayed, the whole pipeline blocks
-❌ Backfilling becomes extremely complicated
+❌ not truly real-time <br>
+❌ If any source is delayed, the whole pipeline blocks <br>
+❌ Backfilling becomes extremely complicated <br>
 
 2. Base the scoring window on the latest timestamps inside the dataframes
 
@@ -121,7 +121,7 @@ At :10 and :40, assume all three datasets have produced at least one batch of ne
 - Find the latest timestamp across all three
 - Recompute the score using the last 1-hour window of each dataset
 
-❌ Still not real-time — we can only run after all sources catch up
-❌ Very high computation cost (full scan to detect the latest timestamp)
-❌ Dataframes may still be incomplete if one source lags by minutes
+❌ Still not real-time — we can only run after all sources catch up <br>
+❌ Very high computation cost (full scan to detect the latest timestamp) <br>
+❌ Dataframes may still be incomplete if one source lags by minutes <br>
 ❌ Backfill and debugging become even harder:
