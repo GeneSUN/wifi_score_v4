@@ -52,7 +52,7 @@ Latest ts   : 1762801875000 → 2025-11-10 15:25:15
 
 ## 3. Issue Discovered: The data sources do not update simultaneously.
 
-**/sha_data/StationHistory/date=20251110/hour=16**
+### A. **/sha_data/StationHistory/date=20251110/hour=16**
 from xx:12 to (xx+1):05
 
 | Permission | Owner | Group | Size | Last Modified | Replication | Block Size | File Name |
@@ -64,7 +64,8 @@ from xx:12 to (xx+1):05
 | -rw-r--r-- | root | supergroup | 175.08 MB | 11/10/25 12:05 | 2 | 128 MB | 10.103.60.245-StationHistory-s2_ArcFlumeData_1762793454008.parquet |
 
 
-**/sha_data/purple_prod/bhrx_stationhistory/date=20251110/hour=16**
+
+###  B. **/sha_data/purple_prod/bhrx_stationhistory/date=20251110/hour=16**
 from xx:05 to (xx+1):05
 
 | Permission | Owner | Group | Size | Last Modified | Replication | Block Size | File Name |
@@ -74,7 +75,7 @@ from xx:05 to (xx+1):05
 | -rw-r--r-- | root | supergroup | 44.90 KB | 11/10/25 12:02 | 2 | 128 MB | part-00015-8f9b8007-3e96-4eba-828a-0ca09b1ce337-c000.snappy.parquet |
 | -rw-r--r-- | root | supergroup | 46.97 KB | 11/10/25 12:02 | 2 | 128 MB | part-00023-8f9b8007-3e96-4eba-828a-0ca09b1ce337-c000.snappy.parquet |
 
-**/sha_data/DeviceGroups/date=20251110/hour=16**
+###  C. **/sha_data/DeviceGroups/date=20251110/hour=16**
 
 update twice a hour
 - one at xx:33 -> xx:37 
