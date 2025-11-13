@@ -16,17 +16,11 @@ This document explains the methodology and key performance indicators (KPIs) use
   - https://github.com/GeneSUN/wifi_score_v4/blob/main/stationScore.py
 - StationScore Hourly:
   - https://github.com/GeneSUN/wifi_score_v4/blob/main/Hourly_Score/station_score_hourly.py
+
 ---
 
-## 🧩 Overview of Wi-Fi Score Components
+## Introduction to the WiFi Score Project
 
-| Component      | Sub-Metrics                                   | Description |
-|----------------|-----------------------------------------------|--------------|
-| **Coverage**   | RSSI                                          | Measures signal strength and connection stability. |
-| **Speed**      | Phy Rate, Airtime Utilization                 | Evaluates data throughput and network congestion. |
-| **Reliability**| Reboot, Sudden Drop, SON/Client Steering, IP Changes | Captures stability and connection consistency. |
-
-<img width="677" height="437" alt="Screenshot 2025-11-02 at 2 25 41 PM" src="https://github.com/user-attachments/assets/44f67ec3-1ead-425f-9e7c-19c0f8853026" />
 
 ### 1. Situation & Background
 
@@ -90,6 +84,19 @@ The outcome is a rule-based monitoring system that:
 - Generates interpretable scores for both engineering and customer-support teams
 - Doubles as a feature store for downstream analytics and machine learning
   
+
+---
+
+## 🧩 Overview of Wi-Fi Score Components
+
+| Component      | Sub-Metrics                                   | Description |
+|----------------|-----------------------------------------------|--------------|
+| **Coverage**   | RSSI                                          | Measures signal strength and connection stability. |
+| **Speed**      | Phy Rate, Airtime Utilization                 | Evaluates data throughput and network congestion. |
+| **Reliability**| Reboot, Sudden Drop, SON/Client Steering, IP Changes | Captures stability and connection consistency. |
+
+<img width="677" height="437" alt="Screenshot 2025-11-02 at 2 25 41 PM" src="https://github.com/user-attachments/assets/44f67ec3-1ead-425f-9e7c-19c0f8853026" />
+
 ---
 
 ## ⚙️ Reliability / Stability
