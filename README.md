@@ -28,6 +28,68 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 <img width="677" height="437" alt="Screenshot 2025-11-02 at 2 25 41 PM" src="https://github.com/user-attachments/assets/44f67ec3-1ead-425f-9e7c-19c0f8853026" />
 
+### 1. Situation & Background
+
+In recent years, Verizon launched a new product—5G Home WiFi—as a fixed wireless access (FWA) solution.
+However, the early customer experience revealed a consistent issue: network performance was unstable, with intermittent drops in speed, reliability, and overall quality.
+
+To address this, the company initiated a project to continuously monitor network performance and proactively identify customers experiencing degraded service.
+
+The same scoring mechanism is also used for traditional wired WiFi products, making the system broadly applicable across access technologies.
+
+### 2. Impact
+
+In essence, this project functions as a **telecom-specific feature store**, and **rule-based anomaly detection system** built on top.
+
+The WiFi Score allows Company to:
+
+1. Detect customers whose network performance is declining.
+2. Provide targeted fixes, support, or upgraded service packages.
+3. Understand performance issues at scale across millions of devices.
+
+This makes the score a foundation for both customer experience improvement and network operations insights.
+
+### 3. Task Breakdown
+
+The WiFi Score framework involves three major dimensions:
+
+1. Multi-Aspect Evaluation (KPI Level)
+
+The score evaluates several performance dimensions—such as speed, reliability, and coverage.
+Each dimension is tracked through a specific set of KPIs or features.
+
+2. Multi-Device Aggregation (Customer Level)
+A customer’s overall score aggregates signals from multiple devices in the home environment.
+Each device contributes its own set of metrics, which are then combined into a customer-level performance assessment.
+
+3. Daily Monitoring (Time Level)
+
+**Illustration: A Medical Analogy**
+
+You can think of WiFi Score like evaluating a patient’s health:
+- A patient (customer) has multiple systems: nervous, circulatory, respiratory.
+- Each system contains multiple organs, each with its own critical indicators:
+  - Heart → heartbeat
+  - Cardiovascular system → blood pressure
+  - Respiratory system → oxygen level
+
+These indicators combine to form a summary health score.
+
+## 4. Actions Taken
+
+Carefully selected critical KPIs based on empirical telecom knowledge and network behavior.
+
+Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
+
+Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
+
+## 5. Results
+
+The outcome is a rule-based monitoring system that:
+- Flags anomaly conditions in customer WiFi performance
+- Generates interpretable scores for both engineering and customer-support teams
+- Doubles as a feature store for downstream analytics and machine learning
+  
 ---
 
 ## ⚙️ Reliability / Stability
