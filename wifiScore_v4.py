@@ -733,7 +733,7 @@ if __name__ == "__main__":
                         .getOrCreate()
     email_sender = MailSender()
     
-    backfill_range = 1
+    backfill_range = 10
     parser = argparse.ArgumentParser(description="Inputs") 
     parser.add_argument("--date", default=(date.today() - timedelta(1) ).strftime("%Y-%m-%d")) 
     args_date = parser.parse_args().date
