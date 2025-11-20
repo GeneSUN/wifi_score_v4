@@ -105,7 +105,6 @@ This brought both collaboration and competition, creating challenges:
 
 | Challenge | Explanation |
 |-----------|-------------|
-| Conflicting incentives | Each team had different priorities — network quality, customer retention, or product visibility. |
 | Partial information sharing | Teams collaborated, but carefully controlled how much detail or credit to share. |
 | PM group was demanding but delayed | PM frequently delayed documentation and clarification, but still imposed tight deadlines. |
 | Ownership and visibility concerns | Our team originally proposed the idea, but another group later redefined the scoring logic and gained visibility. |
