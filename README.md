@@ -117,6 +117,7 @@ This brought both collaboration and competition, creating challenges:
 ### 📈 6.2 Project Scope Expanded Rapidly
 
 The Wi-Fi Score initiative started from a simple idea and gradually grew as more use cases and requirements were added:
+- https://github.com/GeneSUN/wifi_score_v4/blob/main/granularization-corner%20case/The%20Power%20of%20One%20Granularity.md
 
 | Expansion | Description |
 |-----------|-------------|
@@ -124,7 +125,7 @@ The Wi-Fi Score initiative started from a simple idea and gradually grew as more
 | Granularity | Began with **daily** customer-level scoring → later refined to **hourly** and **device-level** monitoring. |
 | Technical Depth | Started with simple rule-based scoring → then added richer feature engineering → built a feature store → finally integrated ML-based scoring and anomaly detection. |
 
-
+- [https://github.com/GeneSUN/wifi_score_v4/tree/main/Hourly_Score](https://github.com/GeneSUN/wifi_score_v4/blob/main/Hourly_Score/Real-Time%20Wi-Fi%20Score%20Challenge.md)
 
 **Learning:** The challenge wasn’t a one-time build, but continuously growing the system while keeping it maintainable and scalable.
 
