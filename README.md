@@ -19,7 +19,19 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 ---
 
+
+
 ## Introduction to the WiFi Score Project
+### 📄 Table of Contents
+
+- [1. Situation & Background](#1-situation--background)  
+- [2. Impact](#2-impact)  
+- [3. Task Breakdown](#3-task-breakdown)  
+- [4. Actions Taken](#4-actions-taken)  
+- [5. Results](#5-results)  
+- [6. Key Challenges](#6-key-challenges)  
+- [7. Overview of Wi-Fi Score Components](#7-overview-of-wi-fi-score-components)
+---
 
 
 ### 1. Situation & Background
@@ -83,11 +95,59 @@ The outcome is a rule-based monitoring system that:
 - Flags anomaly conditions in customer WiFi performance
 - Generates interpretable scores for both engineering and customer-support teams
 - Doubles as a feature store for downstream analytics and machine learning
-  
+
+## 6. Key Challenges
+
+### 🏢 6.1 Cross-Department Alignment & Communication
+
+This project involved multiple departments (Network Engineering, Customer Support, Data Science, and Product), and even people from different corporate entities.  
+This brought both collaboration and competition, creating challenges:
+
+| Challenge | Explanation |
+|-----------|-------------|
+| Conflicting incentives | Each team had different priorities — network quality, customer retention, or product visibility. |
+| Partial information sharing | Teams collaborated, but carefully controlled how much detail or credit to share. |
+| PM group was demanding but delayed | PM frequently delayed documentation and clarification, but still imposed tight deadlines. |
+| Ownership and visibility concerns | Our team originally proposed the idea, but another group later redefined the scoring logic and gained visibility. |
+
+**Learning:** Success wasn't just about technology — it required communication, expectation management, and visibility handling across teams.
+
 
 ---
 
-## 🧩 Overview of Wi-Fi Score Components
+### 📈 6.2 Project Scope Expanded Rapidly
+
+The Wi-Fi Score initiative started from a simple idea and gradually grew as more use cases and requirements were added:
+
+| Expansion | Description |
+|-----------|-------------|
+| Product Scope | Started with Wi-Fi only → then extended to both Wi-Fi **and** 5G Home (FWA). |
+| Granularity | Began with **daily** customer-level scoring → later refined to **hourly** and **device-level** monitoring. |
+| Technical Depth | Started with simple rule-based scoring → then added richer feature engineering → built a feature store → finally integrated ML-based scoring and anomaly detection. |
+
+
+
+**Learning:** The challenge wasn’t a one-time build, but continuously growing the system while keeping it maintainable and scalable.
+
+
+
+---
+
+### 🧠 6.3 Domain + Machine Learning Integration
+
+Developing the score required blending domain expertise with data science:
+
+- Telecom knowledge (RSRP, CQI, CPE connectivity, Wi-Fi stability, packet loss)
+- Feature engineering across **network**, **device**, and **customer** levels
+- Transition from thresholds → probabilistic detection → ML anomaly detection and churn models
+- Designing a score that both engineers and customer-support teams could interpret
+
+**Learning:** ML is powerful, but without domain context and interpretability, it has limited business value.
+
+
+---
+
+## 7. Overview of Wi-Fi Score Components
 
 | Component      | Sub-Metrics                                   | Description |
 |----------------|-----------------------------------------------|--------------|
