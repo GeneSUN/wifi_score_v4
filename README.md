@@ -37,7 +37,7 @@ This document explains the methodology and key performance indicators (KPIs) use
 ### 1. Situation & Background
 
 In recent years, Verizon launched a new product—5G Home WiFi—as a fixed wireless access (FWA) solution.
-However, the early customer experience revealed a consistent issue: network performance was unstable, with intermittent drops in speed, reliability, and overall quality.
+However, the early customer experience revealed a consistent issue: network performance was unstable, with unexpected drops in speed, reliability, and overall quality.
 
 To address this, the company initiated a project to continuously monitor network performance and proactively identify customers experiencing degraded service.
 
@@ -115,15 +115,19 @@ This brought both collaboration and competition, creating challenges:
 ---
 
 ### 📈 6.2 Project Scope Expanded Rapidly
-
 The Wi-Fi Score initiative started from a simple idea and gradually grew as more use cases and requirements were added:
-- https://github.com/GeneSUN/wifi_score_v4/blob/main/granularization-corner%20case/The%20Power%20of%20One%20Granularity.md
+
+<img width="2093" height="609" alt="Screenshot 2025-11-02 at 2 44 29 PM" src="https://github.com/user-attachments/assets/3cf3dbc3-0932-4465-a7ea-70e4d1f5be71" />
+
 
 | Expansion | Description |
 |-----------|-------------|
 | Product Scope | Started with Wi-Fi only → then extended to both Wi-Fi **and** 5G Home (FWA). |
 | Granularity | Began with **daily** customer-level scoring → later refined to **hourly** and **device-level** monitoring. |
-| Technical Depth | Started with simple rule-based scoring → then added richer feature engineering → built a feature store → finally integrated ML-based scoring and anomaly detection. |
+| Technical Depth | Started with simple rule-based scoring → then added richer feature engineering → built a feature store → finally integrated ML-based scoring and anomaly detection.|
+
+
+- https://github.com/GeneSUN/wifi_score_v4/blob/main/granularization-corner%20case/The%20Power%20of%20One%20Granularity.md
 
 - [https://github.com/GeneSUN/wifi_score_v4/tree/main/Hourly_Score](https://github.com/GeneSUN/wifi_score_v4/blob/main/Hourly_Score/Real-Time%20Wi-Fi%20Score%20Challenge.md)
 
