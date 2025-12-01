@@ -83,11 +83,11 @@ These indicators combine to form a summary health score.
 
 ## 4. Actions Taken
 
-Carefully selected critical KPIs based on empirical telecom knowledge and network behavior.
+1. Carefully selected critical KPIs based on empirical telecom knowledge and network behavior.
 
-Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
+2. Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
 
-Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
+3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
 
 ## 5. Results
 
