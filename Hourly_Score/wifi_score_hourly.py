@@ -20,39 +20,8 @@ import pandas as pd
 import sys 
 import time
 
-class LogTime:
-    def __init__(self, verbose=True, minimum_unit="microseconds") -> None:
-        self.minimum_unit = minimum_unit
-        self.elapsed = None
-        self.verbose = verbose
-
-    def __enter__(self):
-        self.start = time.time()
-        return self
-
-    def __exit__(self, *args):
-        self.elapsed = time.time() - self.start
-        self.elapsed_str = self._format_time(self.elapsed)
-        if self.verbose:
-            print(f"Time Elapsed: {self.elapsed_str}")
-
-    def _format_time(self, seconds: float) -> str:
-        """
-        Convert seconds into a human-readable string.
-        """
-        if seconds < 1e-3:  # less than 1 ms
-            return f"{seconds*1e6:.2f} µs"
-        elif seconds < 1:   # less than 1 second
-            return f"{seconds*1e3:.2f} ms"
-        elif seconds < 60:  # less than 1 minute
-            return f"{seconds:.2f} s"
-        elif seconds < 3600:  # less than 1 hour
-            m, s = divmod(seconds, 60)
-            return f"{int(m)}m {s:.2f}s"
-        else:
-            h, r = divmod(seconds, 3600)
-            m, s = divmod(r, 60)
-            return f"{int(h)}h {int(m)}m {s:.2f}s"
+sys.path.append('/usr/apps/vmas/script/ZS/HourlyScore') 
+from StationConnection import parse_args, LogTime
 
 class wifi_score_hourly:
     global hdfs_pd, hdfs_pa
@@ -63,9 +32,9 @@ class wifi_score_hourly:
                  date_str,
                  hour_str,
                  source_df,
-                 station_history_path = hdfs_pa + f"/sha_data/StationHistory/",
-                 device_groups_path = hdfs_pa + f"/sha_data/DeviceGroups/",
-                 output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/"
+                 station_history_path,
+                 device_groups_path,
+                 output_path
                  ):
         self.spark = spark
         self.data_consumption_df = None
@@ -83,8 +52,6 @@ class wifi_score_hourly:
          .withColumn("date", F.lit(date_part))\
          .withColumn("hour", F.lit(hour_part))\
          .createOrReplaceTempView('bhrx_stationhistory_version_001')
-            
-        print(f"Reading data consumption for date={date_part}, hour={hour_part}")
         
         data_consumption_query = f"""
             SELECT
@@ -121,7 +88,7 @@ class wifi_score_hourly:
                 COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour) as record_count
             FROM station_hourly_data_speed
         ''')
-        spark.catalog.dropTempView('station_hourly_data_speed')
+        self.spark.catalog.dropTempView('station_hourly_data_speed')
 
         #station_hourly_data_with_count.cache()
         station_hourly_data_with_count.createOrReplaceTempView('station_hourly_data_cached_speed')
@@ -433,7 +400,6 @@ class wifi_score_hourly:
 
         reliability_df = self.spark.sql(reliability_query)
 
-
         reliability_score_df = reliability_df.withColumn(
             "reliability_score_num",
             F.when(F.col("p90_airtime_util_2_4g") < 40, 4)
@@ -451,7 +417,7 @@ class wifi_score_hourly:
 
         wifi_score_df = self.speed_score_df.alias("s").join(
                 self.coverage_score_df.alias("c"),
-                on=['sn', 'station_mac', 'date', 'hour', 'model', 'mobility_status', 'station_name'],
+                on=['sn', 'station_mac', 'date', 'hour', 'model', 'station_name'],
                 how='inner'
             ).join(
                 self.reliability_score_df.alias("r"),
@@ -541,7 +507,7 @@ class wifi_score_hourly:
                 """
             )
 
-        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/{self.date_str}/{self.hour_str}")
+        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
         return wifi_score_df
 
 if __name__ == "__main__":
@@ -549,24 +515,49 @@ if __name__ == "__main__":
                         .config("spark.ui.port","24045")\
                         .getOrCreate()
 
-    
-    date_str = "20250930"
-    hour_str = "15"
-    #station_connection_hourly
+    # --------------------------------------------------------
+    # Parse Input Arguments or Auto-Generate Date/Hour
+    # --------------------------------------------------------
+    args = parse_args()
+
+    if args.date_str and args.hour_str:
+        date_str = args.date_str
+        hour_str = args.hour_str
+        print(f"[INFO] Using passed-in date/hour: {date_str} {hour_str}")
+    else:
+        current_datetime = datetime.now() + timedelta(hours=3)
+        date_str = current_datetime.strftime("%Y%m%d")
+        hour_str = current_datetime.strftime("%H")
+        print(f"[INFO] Auto-generated date/hour: {date_str} {hour_str}")
+    # --------------------------------------------------------
+    # Define HDFS Paths
+    # --------------------------------------------------------
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
-    hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
+    hdfs_pa = "hdfs://njbbepapa1.nss.vzwnet.com:9000"
 
-    station_history_path = hdfs_pa + f"/sha_data/StationHistory/"
+    station_history_path = f"{hdfs_pa}/sha_data/StationHistory"
+    device_groups_path = f"{hdfs_pa}/sha_data/DeviceGroups"
+    station_connection_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_connection_hourly"
+    wifi_score_output_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/wifi_score_hourly"
 
-    station_connection_df = spark.read.parquet(f"{hdfs_pa}/sha_data//vz-bhr-athena/reports/station_connection_houry/")
 
-
+    # --------------------------------------------------------
+    # Run WiFi Score Hourly Processor
+    # --------------------------------------------------------
     with LogTime() as timer:
+        
+        station_connection_df = spark.read.parquet(station_connection_path)
+
         wifi_score_runner = wifi_score_hourly(
-                                    spark,
-                                    date_str,
-                                    hour_str,
-                                    station_connection_df,
-                                    output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/{date_str}/{hour_str}"
-                                        )
+            spark=spark,
+            date_str=date_str,
+            hour_str=hour_str,
+            source_df=station_connection_df,
+            station_history_path=station_history_path,
+            device_groups_path=device_groups_path,
+            output_path=wifi_score_output_path
+        )
         wifi_score_runner.run()
+
+
+
