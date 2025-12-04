@@ -126,3 +126,11 @@ At :10 and :40, assume all three datasets have produced at least one batch of ne
 ❌ Very high computation cost (full scan to detect the latest timestamp) <br>
 ❌ Dataframes may still be incomplete if one source lags by minutes <br>
 ❌ Backfill and debugging become even harder:
+
+## Backfill strategy
+
+<img width="1975" height="607" alt="image" src="https://github.com/user-attachments/assets/879b6252-4f50-40fd-b533-25467ca58f88" />
+
+
+<img width="937" height="331" alt="image" src="https://github.com/user-attachments/assets/7fe541e6-a1a2-4257-a5eb-791445b3330c" />
+
