@@ -205,7 +205,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     with LogTime() as timer:
-        station_connection_df = spark.read.parquet(f"{hdfs_pa}/sha_data//vz-bhr-athena/reports/station_connection_houry/")
+        station_connection_df = spark.read.parquet(station_connection_path)
 
         ins = station_score_hourly(
                                 spark,
