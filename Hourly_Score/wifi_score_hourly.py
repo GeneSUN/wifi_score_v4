@@ -104,7 +104,7 @@ class wifi_score_hourly:
                 APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_2_4g,
                 APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_5g
                 FROM station_hourly_data_cached_speed
-                WHERE record_count >= 9
+                WHERE record_count >= 8
                 and CAST(tx_phy_rate AS DOUBLE) > 24
                 GROUP BY sn, station_mac, date, hour
             ),
@@ -186,8 +186,8 @@ class wifi_score_hourly:
                 sn, station_mac, date, hour,
                 MAX(CAST(snr AS DOUBLE)) - MIN(CAST(snr AS DOUBLE)) as snr_range
                 FROM station_hourly_data_cached_speed
-                WHERE record_count >= 9
-                AND CAST(snr AS DOUBLE) BETWEEN 0 AND 50
+                WHERE record_count >= 8
+                AND CAST(snr AS DOUBLE) BETWEEN 0 AND 95
                 GROUP BY sn, station_mac, date, hour
             )
             SELECT
@@ -252,7 +252,7 @@ class wifi_score_hourly:
                 APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(rssi AS DOUBLE) END, 0.90) AS p90_rssi_2_4g,
                 APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(rssi AS DOUBLE) END, 0.90) AS p90_rssi_5g
                 FROM station_hourly_data_cached_coverage
-                WHERE record_count >= 9
+                WHERE record_count >= 8
                 GROUP BY sn, station_mac, date, hour
             ),
             base_scores AS (
@@ -332,7 +332,7 @@ class wifi_score_hourly:
                 SELECT
                 sn, station_mac, date, hour
                 FROM station_hourly_data_cached_coverage
-                WHERE record_count >= 9
+                WHERE record_count >= 8
                 GROUP BY sn, station_mac, date, hour
             )
             SELECT
@@ -561,3 +561,4 @@ if __name__ == "__main__":
 
 
 
+    print(f"[INFO] WiFi Score Hourly Job completed in {timer.elapsed_time()} seconds.")
