@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from pyspark.sql.window import Window
 from pyspark.sql.functions import sum, lag, col, split, concat_ws, lit ,udf,count, max,lit,avg, when,concat_ws,to_date,explode
 from pyspark.sql.types import *
@@ -25,6 +25,16 @@ from datetime import timedelta
 
 sys.path.append('/usr/apps/vmas/scripts/ZS') 
 from MailSender import MailSender
+def path_exists(path: str) -> bool:
+    from pyspark.sql.utils import AnalysisException
+
+    """Return True if path exists, False if not."""
+    try:
+        spark.read.text(path).limit(1).count()
+        return True
+    except AnalysisException:
+        return False
+    
 def flatten_df_v2(nested_df):
     # flat the nested columns and return as a new column
     flat_cols = [c[0] for c in nested_df.dtypes if c[1][:6] != 'struct']
@@ -735,17 +745,19 @@ if __name__ == "__main__":
     
     backfill_range = 10
     parser = argparse.ArgumentParser(description="Inputs") 
-    parser.add_argument("--date", default=(date.today() - timedelta(1) ).strftime("%Y-%m-%d")) 
+    parser.add_argument("--date", default=( (datetime.now(timezone.utc) - timedelta(1)).strftime("%Y-%m-%d")) )
     args_date = parser.parse_args().date
     date_list = [( datetime.strptime( args_date, "%Y-%m-%d" )  - timedelta(days=i)).date() for i in range(backfill_range)][::-1]
 
-    hadoop_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
+    #hadoop_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
     def process_kpi_data(date_list, email_sender):
         for date_val in date_list:
             file_date = date_val.strftime('%Y-%m-%d')
-            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/backup/crsp_wifiscore/{file_date}"
+            file_path = f"{hdfs_pd}/user/ZheS/wifi_score_v4/wifiScore_location/{file_date}"
 
-            if hadoop_fs.exists(spark._jvm.org.apache.hadoop.fs.Path(file_path)):
+            success_file = f"{file_path}/_SUCCESS"
+
+            if path_exists(success_file):
                 print(f"data for {file_date} already exists.")
                 continue
 
@@ -780,18 +792,22 @@ if __name__ == "__main__":
 
                 # Loop over the selected environments
                 for env in  ["crsp", "pac"]:
-                    cfg = env_configs[env]
-                    analysis = wifiKPIAnalysis(
-                        date_val=date_val,
-                        owl_path=cfg["owl_path"],
-                        station_history_path=cfg["station_history"],
-                        deviceGroup_path=cfg["deviceGroup"],
-                        df_rssi_path=cfg["df_rssi"],
-                        df_phyrate_path=cfg["df_phyrate"],
-                        wifiscore_path=cfg["wifiscore"]
-                    )
-                    analysis.get_score()
-                    print(cfg["wifiscore"])
+                    try:
+                        cfg = env_configs[env]
+                        analysis = wifiKPIAnalysis(
+                            date_val=date_val,
+                            owl_path=cfg["owl_path"],
+                            station_history_path=cfg["station_history"],
+                            deviceGroup_path=cfg["deviceGroup"],
+                            df_rssi_path=cfg["df_rssi"],
+                            df_phyrate_path=cfg["df_phyrate"],
+                            wifiscore_path=cfg["wifiscore"]
+                        )
+                        analysis.get_score()
+                        print(cfg["wifiscore"])
+                    except Exception as e:
+                        error_message = ( f"wifiScore v4 failed at {env} {file_date}\n\n{traceback.format_exc()}" )
+                        print(error_message)
 
                 try:
                     base_df = spark.read.parquet( env_configs["crsp"]["df_rssi"] )
@@ -846,7 +862,8 @@ if __name__ == "__main__":
                 email_sender.send(
                                     send_from=f"wifiKPIAnalysis@verizon.com",
                                     subject=f"wifiKPIAnalysis failed !!! at {file_date}",
-                                    text=error_message
+                                    text=error_message,
+                                    cc =["injure21@gmail.com"]
                                 )
 
     process_kpi_data(date_list, email_sender)
