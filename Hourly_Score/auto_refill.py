@@ -174,8 +174,8 @@ if __name__ == "__main__":
 
     spark = (
         SparkSession.builder
-        .appName("backfill_wifi_score_hourly_report_v1")
-        .config("spark.ui.port", "24045")
+        .appName("backfill_wifi_score_hourly_station_score_hourly")
+        .config("spark.ui.port", "24055")
         .getOrCreate()
     )
 
@@ -221,41 +221,39 @@ if __name__ == "__main__":
         date_str, hour_str, missing = d["date_str"], d["hour_str"], d["missing"]
         print(f"\n[REPROCESS] date={date_str}, hour={hour_str}, missing={missing}")
 
-        # Step 1: Generate station connection
-        with LogTime() as timer:
-            processor = StationConnectionProcessor(
-                spark,
-                input_path=station_history_path,
-                date_str=date_str,
-                hour_str=hour_str
-            )
-            station_connection_df = processor.run()
-            station_connection_df.cache()
 
-        # Step 2: Run station score
-        with LogTime() as timer:
-            station_runner = station_score_hourly(
-                spark,
-                date_str,
-                hour_str,
-                station_connection_df,
-                output_path=station_score_output_path
-            )
-            station_runner.run()
+        processor = StationConnectionProcessor(
+            spark,
+            input_path=station_history_path,
+            date_str=date_str,
+            hour_str=hour_str
+        )
+        station_connection_df = processor.run()
+        station_connection_df.cache()
 
-        # Step 3: Run WiFi score
-        with LogTime() as timer:
 
-            wifi_score_runner = wifi_score_hourly(
-                spark=spark,
-                date_str=date_str,
-                hour_str=hour_str,
-                source_df=station_connection_df,
-                station_history_path=station_history_path,
-                device_groups_path=device_groups_path,
-                output_path=wifi_score_output_path
-            )
-            wifi_score_runner.run()
+        wifi_score_runner = wifi_score_hourly(
+            spark=spark,
+            date_str=date_str,
+            hour_str=hour_str,
+            source_df=station_connection_df,
+            station_history_path=station_history_path,
+            device_groups_path=device_groups_path,
+            output_path=wifi_score_output_path
+        )
+        wifi_score_runner.run()
+
+
+        station_runner = station_score_hourly(
+            spark,
+            date_str,
+            hour_str,
+            station_connection_df,
+            output_path=station_score_output_path
+        )
+        station_runner.run()
+
+
 
 
     print("[DONE] All missing hours have been reprocessed successfully.")
