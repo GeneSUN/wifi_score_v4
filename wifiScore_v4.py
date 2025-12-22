@@ -821,7 +821,7 @@ if __name__ == "__main__":
                     update_df = spark.read.parquet( env_configs["pac"]["df_phyrate"] )
                     replace_rows(base_df, update_df, "rowkey" ).write.mode("overwrite").parquet(env_configs["all"]["df_phyrate"])
                 except:
-                    spark.read.parquet( env_configs["crsp"]["df_rssi"] ).write.mode("overwrite").parquet(env_configs["all"]["df_phyrate"])
+                    spark.read.parquet( env_configs["crsp"]["df_phyrate"] ).write.mode("overwrite").parquet(env_configs["all"]["df_phyrate"])
 
                 try:
                     base_df = spark.read.parquet( env_configs["crsp"]["wifiscore"] )
