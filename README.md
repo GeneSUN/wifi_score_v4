@@ -19,8 +19,6 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 ---
 
-
-
 ## Introduction to the WiFi Score Project
 ### 📄 Table of Contents
 
@@ -37,9 +35,9 @@ This document explains the methodology and key performance indicators (KPIs) use
 ### 1. Situation & Background
 
 In recent years, Verizon launched a new product—5G Home WiFi—as a fixed wireless access (FWA) solution.
-However, the early customer experience revealed a consistent issue: network performance was unstable, with unexpected drops in speed, reliability, and overall quality.
+However, the early customer experience consistent issue: network performance was unstable, with unexpected drops in speed, reliability, and overall quality.
 
-To address this, the company initiated a project to continuously monitor network performance and proactively identify customers experiencing degraded service.
+To address this, the company initiated a project to continuously monitor network performance and Proactively identify customers who are having service issues..
 
 The same scoring mechanism is also used for traditional wired WiFi products, making the system broadly applicable across access technologies.
 
@@ -91,10 +89,16 @@ These indicators combine to form a summary health score.
 
 ## 5. Results
 
-The outcome is a rule-based monitoring system that:
-- Flags anomaly conditions in customer WiFi performance
-- Generates interpretable scores for both engineering and customer-support teams
-- Doubles as a feature store for downstream analytics and machine learning
+In essence, this project functions as a **telecom-specific feature store**, and **rule-based anomaly detection system** built on top.
+
+1. Detect customers whose network performance is declining
+   - Provide targeted fixes, support, or upgraded service packages.
+2. Customer Segment monitoring
+   - customers can be segment by Demographic or Behavioral;
+   - Generates interpretable scores for both engineering and customer-support teams, business teams.
+3. feature store for downstream analytics and machine learning
+   - churn prediction model; extenter recommendation model; real-time anomaly detection model.
+   - shared in cloud with other teams.
 
 ## 6. Key Challenges
 
