@@ -80,6 +80,7 @@ These indicators combine to form a summary health score.
 2. Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
    - SNR
    - Speed, include multiple different corelated, PCA
+   - One lose, all lose.
 3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
 4. Validation, majorly by field test
 
