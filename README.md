@@ -33,7 +33,7 @@ This document explains the methodology and key performance indicators (KPIs) use
 **Translate business challenges into data-driven problems and design appropriate data science solutions, including metrics and analytics,**
 
 
-### 1. Situation & Background
+## 1. Situation & Background
 
 In recent years, Verizon launched a new product—5G Home WiFi—as a fixed wireless access (FWA) solution.
 However, the early customer experience consistent issue: network performance was unstable, with unexpected drops in speed, reliability, and overall quality.
@@ -44,7 +44,7 @@ The same scoring mechanism is also used for traditional wired WiFi products, mak
 
 
 
-### 2. Task Breakdown
+## 2. Task Breakdown
 
 The overall task, business challenges is to evaluate customer network performance. is this cutomer good, or is this customer bad.
 
