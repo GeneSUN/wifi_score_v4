@@ -22,14 +22,15 @@ This document explains the methodology and key performance indicators (KPIs) use
 ## Introduction to the WiFi Score Project
 ### 📄 Table of Contents
 
-- [1. Situation & Background](#1-situation--background)  
-- [2. Impact](#2-impact)  
-- [3. Task Breakdown](#3-task-breakdown)  
-- [4. Actions Taken](#4-actions-taken)  
-- [5. Results](#5-results)  
-- [6. Key Challenges](#6-key-challenges)  
-- [7. Overview of Wi-Fi Score Components](#7-overview-of-wi-fi-score-components)
+- [1. Situation & Background](#1-situation--background)    
+- [2. Task Breakdown](#2-task-breakdown)  
+- [3. Actions Taken](#3-actions-taken)  
+- [4. Results](#4-results)  
+- [5. Key Challenges](#5-key-challenges)  
+- [6. Overview of Wi-Fi Score Components](#6-overview-of-wi-fi-score-components)
 ---
+
+**Translate business challenges into data-driven problems and design appropriate data science solutions, including metrics and analytics,**
 
 
 ### 1. Situation & Background
@@ -41,19 +42,13 @@ To address this, the company initiated a project to continuously monitor network
 
 The same scoring mechanism is also used for traditional wired WiFi products, making the system broadly applicable across access technologies.
 
-### 2. Impact
 
-In essence, this project functions as a **telecom-specific feature store**, and **rule-based anomaly detection system** built on top.
 
-The WiFi Score allows Company to:
+### 2. Task Breakdown
 
-1. Detect customers whose network performance is declining.
-2. Provide targeted fixes, support, or upgraded service packages.
-3. Understand performance issues at scale across millions of devices.
+The overall task, business challenges is to evaluate customer network performance. is this cutomer good, or is this customer bad.
 
-This makes the score a foundation for both customer experience improvement and network operations insights.
-
-### 3. Task Breakdown
+this business question can be translated into data-driven problems, how to define good or bad, how to quantify?
 
 The WiFi Score framework involves three major dimensions:
 
@@ -79,30 +74,34 @@ You can think of WiFi Score like evaluating a patient’s health:
 
 These indicators combine to form a summary health score.
 
-## 4. Actions Taken
+## 3. Actions Taken
 
 1. Carefully selected critical KPIs based on empirical telecom knowledge and network behavior.
-
 2. Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
-
+   - SNR
+   - Speed, include multiple different corelated, PCA
 3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
+4. Validation, majorly by field test
 
-## 5. Results
+
+## 4. Results
 
 In essence, this project functions as a **telecom-specific feature store**, and **rule-based anomaly detection system** built on top.
 
 1. Detect customers whose network performance is declining
    - Provide targeted fixes, support, or upgraded service packages.
-2. Customer Segment monitoring
+2. Customer Segment monitoring, 11 million customer, 10+ models, 100+ price plans
    - customers can be segment by Demographic or Behavioral;
    - Generates interpretable scores for both engineering and customer-support teams, business teams.
 3. feature store for downstream analytics and machine learning
    - churn prediction model; extenter recommendation model; real-time anomaly detection model.
    - shared in cloud with other teams.
 
-## 6. Key Challenges
+Difficult to quantify the impact of this project, because this is a feature store and anomaly detection system. we telling stakeholders these metrics are important, and these customer are in trouble; i provide resource so that they can take advantage of it.
 
-### 🏢 6.1 Cross-Department Alignment & Communication
+## 5. Key Challenges
+
+### 🏢 5.1 Cross-Department Alignment & Communication
 
 This project involved multiple departments (Network Engineering, Customer Support, Data Science, and Product), and even people from different corporate entities.  
 This brought both collaboration and competition, creating challenges:
@@ -118,7 +117,7 @@ This brought both collaboration and competition, creating challenges:
 
 ---
 
-### 📈 6.2 Project Scope Expanded Rapidly
+### 📈 5.2 Project Scope Expanded Rapidly
 The Wi-Fi Score initiative started from a simple idea and gradually grew as more use cases and requirements were added:
 
 <img width="2093" height="609" alt="Screenshot 2025-11-02 at 2 44 29 PM" src="https://github.com/user-attachments/assets/3cf3dbc3-0932-4465-a7ea-70e4d1f5be71" />
@@ -141,7 +140,7 @@ The Wi-Fi Score initiative started from a simple idea and gradually grew as more
 
 ---
 
-### 🧠 6.3 Domain + Machine Learning Integration
+### 🧠 5.3 Domain + Machine Learning Integration
 
 Developing the score required blending domain expertise with data science:
 
@@ -155,7 +154,7 @@ Developing the score required blending domain expertise with data science:
 
 ---
 
-## 7. Overview of Wi-Fi Score Components
+## 6. Overview of Wi-Fi Score Components
 
 | Component      | Sub-Metrics                                   | Description |
 |----------------|-----------------------------------------------|--------------|
