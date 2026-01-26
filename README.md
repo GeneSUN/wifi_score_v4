@@ -84,6 +84,7 @@ These indicators combine to form a summary health score.
 3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
 4. Validation, majorly by field test
 
+> expansion/evolve of the project
 
 ## 4. Results
 
