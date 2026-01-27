@@ -35,12 +35,9 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 ## 1. Situation & Background
 
-In recent years, Verizon launched a new product—5G Home WiFi—as a fixed wireless access (FWA) solution.
-However, the early customer experience consistent issue: network performance was unstable, with unexpected drops in speed, reliability, and overall quality.
-
-To address this, the company initiated a project to continuously monitor network performance and Proactively identify customers who are having service issues..
-
-The same scoring mechanism is also used for traditional wired WiFi products, making the system broadly applicable across access technologies.
+1. Verizon offers two types of home Wi-Fi services: traditional fixed wifi and a newer mobile-based internet product called 5G Home,
+2. 5G Home has rapidly expanded in recent years, has faced performance challenges, including unstable network behavior, unexpected drops in speed, reliability issues.
+3. To address these issues, the business aimed to continuously monitor network performance, proactively identify customers experiencing service degradation, and enable early intervention.
 
 
 
@@ -57,7 +54,7 @@ The WiFi Score framework involves three major dimensions:
 The score evaluates several performance dimensions—such as speed, reliability, and coverage.
 Each dimension is tracked through a specific set of KPIs or features.
 
-2. Multi-Device Aggregation (Customer Level)
+2. Multi-Device Aggregation (device Level)
 A customer’s overall score aggregates signals from multiple devices in the home environment.
 Each device contributes its own set of metrics, which are then combined into a customer-level performance assessment.
 
@@ -84,7 +81,10 @@ These indicators combine to form a summary health score.
 3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
 4. Validation, majorly by field test
 
-> expansion/evolve of the project
+
+> expansion/evolve of the project, these three question (KPI Level), (device Level) and (Time Level) is how this project evolved
+
+ <img width="2093" height="609" alt="Screenshot 2025-11-02 at 2 44 29 PM" src="https://github.com/user-attachments/assets/3cf3dbc3-0932-4465-a7ea-70e4d1f5be71" />
 
 ## 4. Results
 
@@ -100,6 +100,8 @@ In essence, this project functions as a **telecom-specific feature store**, and 
    - shared in cloud with other teams.
 
 Difficult to quantify the impact of this project, because this is a feature store and anomaly detection system. we telling stakeholders these metrics are important, and these customer are in trouble; i provide resource so that they can take advantage of it.
+
+
 
 ## 5. Key Challenges
 
