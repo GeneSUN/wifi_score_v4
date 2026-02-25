@@ -1,3 +1,31 @@
+'''
+Docstring for StationConnection
+
+This script defines two main phases: the daily "stationarity" calculation and the hourly performance processing.
+
+🛠️ Phase 1: Stationarity Algorithm
+The compute_stationarity method determines whether a device is Stationary (like a smart TV or desktop) or Non-stationary (like a smartphone moving around).
+
+    1. Outlier Removal To ensure the signal analysis is accurate, the script removes noise using a percentile-based approach:It calculates the $3^{rd}, 10^{th}, 50^{th}$ (median), and $90^{th}$ percentiles of signal strength for every device.
+        It defines a Lower Bound: $10\% \text{ value} - 2 \times (90\% \text{ value} - 10\% \text{ value})$.
+
+        Any signal strength lower than this bound (or the $3^{rd}$ percentile) is filtered out as an outlier.
+
+    2. Stability Classification A device is classified based on its signal variance:Metric: 
+        It calculates the difference between the $90^{th}$ and $50^{th}$ percentiles ($Diff = P90 - P50$).Logic: * 
+        If $Diff \leq 5$, the signal is stable, and the device is marked Stationary (1).Otherwise, it is marked Non-stationary (0).
+
+🕒 Phase 2: Hourly Performance ProcessingThe process_hourly method enriches current hourly connection data with the stationarity status determined in Phase 1.
+
+    1. Signal & Link Rate AggregationIt cleans the link_rate strings to extract numeric PHY rates (Physical Layer speeds).
+        It calculates the median ($P50$) and $90^{th}$ percentile ($P90$) of the RSSI for the current hour.
+        
+    2. Steering Analysis The script looks for "Band Steering" or "AP Steering" events.
+        It specifically filters for action_band == "1", which typically signifies a successful or attempted steering action by the network controller (moving a device between 2.4GHz and 5GHz bands).
+        
+'''
+
+
 from datetime import datetime, timedelta, date
 from functools import reduce
 from typing import Optional, List
