@@ -35,7 +35,7 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 ## 1. Situation & Background
 
-1. Verizon offers two types of home Wi-Fi services: traditional fixed wifi and a newer mobile-based internet product called 5G Home,
+1. Verizon operates two home internet products: Traditional fixed Wi-Fi (cable-based)/5G Home (FWA – fixed wireless access over cellular)
 2. 5G Home has rapidly expanded in recent years, has faced performance challenges, including unstable network behavior, unexpected drops in speed, reliability issues.
 3. To address these issues, the business aimed to continuously monitor network performance, proactively identify customers experiencing service degradation, and enable early intervention.
 
@@ -43,46 +43,95 @@ This document explains the methodology and key performance indicators (KPIs) use
 
 ## 2. Task Breakdown
 
-The overall task, business challenges is to evaluate customer network performance. is this cutomer good, or is this customer bad.
-
-this business question can be translated into data-driven problems, how to define good or bad, how to quantify?
+**The overall task is to evaluate customer network performance. is this cutomer having good experience, or is this customer  having bad experience.** <br>
+> _this business question can be translated into data-driven problems, how to define good or bad, how to quantify?_
 
 The WiFi Score framework involves three major dimensions:
 
-1. Multi-Aspect Evaluation (KPI Level)
+**define a single “network health” score that represents the customer’s overall experience.**
+- Individual KPIs are noisy and inconsistent and conflict with each other
+- Different devices behave differently
+- Usage patterns vary by household
+- Network conditions vary by location
 
-The score evaluates several performance dimensions—such as speed, reliability, and coverage.
-Each dimension is tracked through a specific set of KPIs or features.
-
-2. Multi-Device Aggregation (device Level)
-A customer’s overall score aggregates signals from multiple devices in the home environment.
-Each device contributes its own set of metrics, which are then combined into a customer-level performance assessment.
-
-3. Daily Monitoring (Time Level)
-
-**Illustration: A Medical Analogy**
-
-You can think of WiFi Score like evaluating a patient’s health:
-- A patient (customer) has multiple systems: nervous, circulatory, respiratory.
-- Each system contains multiple organs, each with its own critical indicators:
-  - Heart → heartbeat
-  - Cardiovascular system → blood pressure
-  - Respiratory system → oxygen level
-
-These indicators combine to form a summary health score.
+**Design a hierarchical scoring system**
+- Metric dimension (100s of raw counters)
+- Device dimension (multiple stations per home)
+- Time dimension (daily → hourly → trend)
 
 ## 3. Actions Taken
 
-1. Carefully selected critical KPIs based on empirical telecom knowledge and network behavior.
-2. Transformed raw telecom signals into interpretable features (e.g., combining multiple raw fields into meaningful metrics—similar to BMI combining height and weight).
-   - SNR
-   - Speed, include multiple different corelated, PCA
-   - One lose, all lose.
-3. Defined thresholds and rules to categorize performance as Good, Fair, or Poor.
-4. Validation, majorly by field test
+### Action 1: KPI Taxonomy Design & Hierarchical Mapping 
+
+**Built a KPI hierarchy graph**
+- Raw signals → engineered indicators → pillar-level scores
+
+To avoid double-counting correlated metrics, in addition to rely just on domain knowledge, but also statistical method:
+
+- Performed correlation analysis
+- Applied PCA on correlation, such as speed-related features
+
+I cannot talk too much about this
+- (Fragmented/Scattered)
+- domain specified
+- Business secrete
+
+### Action 2: Validation Strategy Under No Ground Truth
+
+There was no label for “bad experience.” So I designed proxy validation:
+- Field engineer synthesis issues
+- Correlation with support tickets,- Ticket pre/post comparison
+- Precision@Top-K analysis
+
+Example framing, This provided operational credibility.
+
+> Among top 20 worst-scored households per day, ~70–75% were confirmed actionable cases.
+
+### Action 3: Stability & Alert Engineering
+Alert is defined in two dimension:
+1. Historically, accumulative alert goes beyond certain threshold
+2. Segment analysis, if number/percentage alert goes beyond certain threshold
+> typically the threshold is defined in terms of Technician capacity and Severity level(domain)
 
 
-> expansion/evolve of the project, these three question (KPI Level), (device Level) and (Time Level) is how this project evolved
+### Action 4: Feature Engineering at Multiple Granularities
+
+Built feature layers:
+
+**Customer-level**
+- Weighted aggregation based on device traffic share
+- Heavy-hitter weighted averaging
+- Outlier-resistant aggregation (trimmed mean)
+
+**Device-level**
+- Percentile PHY rate
+- Reboot frequency normalized by uptime
+- IP change rate per active day
+
+**Time-level**
+- 7-day rolling median
+
+
+### Action 5: Daily → Hourly Architecture Upgrade
+Original version was daily batch. I redesigned:
+- Hourly scoring pipeline
+- Device-level hourly monitoring
+
+This reduced latency from 24h → 1h and enabled:
+- Near real-time degradation detection
+- Early intervention window
+
+### Action 6: Extended Framework to 5G Home
+
+
+
+### Action 7: Converted Rule-Based Score into Reusable Feature Store
+- Churn Prediction
+- Extender Recommendation
+- Feature-level time series anomaly detection
+- GenAI
+
+
 
  <img width="2093" height="609" alt="Screenshot 2025-11-02 at 2 44 29 PM" src="https://github.com/user-attachments/assets/3cf3dbc3-0932-4465-a7ea-70e4d1f5be71" />
 
@@ -90,12 +139,11 @@ These indicators combine to form a summary health score.
 
 In essence, this project functions as a **telecom-specific feature store**, and **rule-based anomaly detection system** built on top.
 
-1. Detect customers whose network performance is declining
+1. Detect customers whose network performance is declining,  11 million customer, 10+ models, 100+ price plans
    - Provide targeted fixes, support, or upgraded service packages.
-2. Customer Segment monitoring, 11 million customer, 10+ models, 100+ price plans
-   - customers can be segment by Demographic or Behavioral;
+   - Customer Segment monitoring, customers can be segment by Demographic or Behavioral;
    - Generates interpretable scores for both engineering and customer-support teams, business teams.
-3. feature store for downstream analytics and machine learning
+2. feature store for downstream analytics and machine learning
    - churn prediction model; extenter recommendation model; real-time anomaly detection model.
    - shared in cloud with other teams.
 
