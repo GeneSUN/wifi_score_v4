@@ -40,6 +40,35 @@ class station_score_hourly:
 
         df = self.source_df
 
+        # ============================================================
+        # [NEW - Req 1] Remove rows where PhyRate = 0 AND RSSI = -100
+        #               These are sentinel/invalid "no signal" records.
+        # ============================================================
+        df = df.filter(
+            ~(
+                (F.col("phy_rate").cast("double") == F.lit(0.0))
+                & (F.col("p90_rssi").cast("double") == F.lit(-100.0))
+            )
+        )
+        # ============================================================
+        # [NEW - Req 2] Remove rows with no data (null in all key
+        #               metric columns used for scoring).
+        # ============================================================
+        df = df.filter(
+            F.col("p90_rssi").isNotNull()
+            | F.col("phy_rate").isNotNull()
+            | F.col("snr").isNotNull()
+        )
+        # ============================================================
+        # [NEW - Req 3] Remove Ethernet devices — band = 'ETH' (or
+        #               similar). Adjust the pattern if your data uses
+        #               a different label (e.g. 'Ethernet', 'eth').
+        # ============================================================
+        df = df.filter(
+            ~F.col("band").isin("ETH", "Ether", "ethernet")
+            & F.col("band").isNotNull()
+        )
+        
         # ------------------------------------------------------------
         # 1) record_count = COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour)
         # ------------------------------------------------------------
@@ -169,7 +198,16 @@ class station_score_hourly:
                 ).otherwise(F.col("final_phy_rate_score"))
             )
         )
-
+        # ============================================================
+        # [NEW - Req 2 (post-aggregation guard)] Drop any grouped rows
+        #        where BOTH final scores are still NULL after pivoting.
+        #        This catches devices that had rows but all key metrics
+        #        were null across every band after aggregation.
+        # ============================================================
+        combined_base_score = combined_base_score.filter(
+            F.col("final_rssi_score").isNotNull()
+            | F.col("final_phy_rate_score").isNotNull()
+        )
 
 
         # ------------------------------------------------------------
@@ -278,7 +316,7 @@ class station_score_hourly:
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('station_score_hourly')\
-                        .config("spark.ui.port","24046")\
+                        .config("spark.ui.port","24049")\
                         .getOrCreate()
 
 
