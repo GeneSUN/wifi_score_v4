@@ -60,6 +60,39 @@ The WiFi Score framework involves three major dimensions:
 - Time dimension (daily → hourly → trend)
 
 ## 3. Actions Taken
+This project went through four major stages of evolution.
+
+### Stage 1 – Initial Prototype (Good Idea, Limited Scope)
+- I started with a simple Wi-Fi score built on four features: Two signal-strength metrics/One data consumption metric/One stationarity metric
+- When I presented it, leadership liked the concept, but they weren’t convinced. The concern was that four features were not enough to represent overall network performance.
+
+### Stage 2 – Expanded & Production-Ready Framework
+
+- I worked cross-functionally with other teams and expanded the score to 20+ metrics.
+- We structured them into three pillars: Speed/Coverage/Reliability
+- This version was tested, validated, and moved into production.
+
+We also began collecting real customer ticket feedback to validate the signal quality. Next stage, I am trying work on these corner cases.
+
+### Stage 3 – Granularity & Product Expansion
+
+Next, we improved both granularity and scope:
+- Expanded from household-level score → device-level score
+- Expanded from daily scoring → hourly monitoring
+- Extended from Wi-Fi only → 5G Home score
+
+This made the system more precise and applicable across products.
+
+### Stage 4 – From Monitoring Tool to Feature Store
+
+Finally, the system evolved beyond monitoring. It became a structured feature store that supported:
+- Churn prediction
+- Extender recommendation
+- Time-series anomaly detection
+- GenAI-based explanation systems
+
+At this stage, it was no longer just a score — it became foundational infrastructure for multiple downstream models.
+
 
 ### Action 1: KPI Taxonomy Design & Hierarchical Mapping 
 
@@ -88,6 +121,11 @@ Example framing, This provided operational credibility.
 > Among top 20 worst-scored households per day, ~70–75% were confirmed actionable cases.
 
 ### Action 3: Stability & Alert Engineering
+
+During this phase, two major challenges:
+1. Result need to be interpretable, Technician easy to understand
+2. Not overload Technician capacity
+
 Alert is defined in two dimension:
 1. Historically, accumulative alert goes beyond certain threshold
 2. Segment analysis, if number/percentage alert goes beyond certain threshold
