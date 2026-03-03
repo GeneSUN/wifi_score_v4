@@ -181,7 +181,7 @@ In essence, this project functions as a **telecom-specific feature store**, and 
    - Provide targeted fixes, support, or upgraded service packages.
    - Customer Segment monitoring, customers can be segment by Demographic or Behavioral;
    - Generates interpretable scores for both engineering and customer-support teams, business teams.
-2. feature store for downstream analytics and machine learning
+2. Feature store for downstream analytics and machine learning
    - churn prediction model; extenter recommendation model; real-time anomaly detection model.
    - shared in cloud with other teams.
 
