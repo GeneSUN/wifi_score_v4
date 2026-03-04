@@ -1,6 +1,9 @@
-# Wi-Fi Score KPI Documentation
+# Wi-Fi Network Quality Scoring & Monitoring Platform
 
-This document explains the methodology and key performance indicators (KPIs) used in calculating the **Wi-Fi Score**, which measures user experience based on **Coverage**, **Speed**, and **Reliability/Stability**.
+- Designed and productionized a hierarchical **Wi-Fi Quality Scoring framework** to quantify customer network experience across **11M+ households**, transforming hundreds of raw telemetry metrics into interpretable performance scores across **speed, coverage, and reliability**.
+- Engineered a large-scale **telecom feature pipeline in PySpark** that aggregates multi-device telemetry into household-level scores using traffic-weighted aggregation, percentile-based metrics, and domain-driven thresholds; expanded the system from **daily → hourly monitoring**, **home-level → device-level scoring**, and extended the framework to **5G Home service**.
+- Built a reusable **network performance feature store** that powers multiple downstream ML and analytics applications, including **churn prediction, extender recommendation, anomaly detection, and GenAI-based diagnostics**, enabling cross-team monitoring, root-cause analysis, and proactive network troubleshooting.
+
 
 <img width="2093" height="609" alt="Screenshot 2025-11-02 at 2 44 29 PM" src="https://github.com/user-attachments/assets/3cf3dbc3-0932-4465-a7ea-70e4d1f5be71" />
 
