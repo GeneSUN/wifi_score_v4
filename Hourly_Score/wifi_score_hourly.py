@@ -633,8 +633,24 @@ class wifi_score_hourly:
                 """
             )
 
-        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
-        return wifi_score_df
+        fraction = 0.01  # 1% sample
+        sample_count = wifi_score_df.sample(fraction=fraction, seed=42).count()
+        estimated_total = sample_count / fraction
+
+        if estimated_total > 1_000_000:
+            print(f"Estimated row count: {estimated_total:,.0f} — proceeding with write")
+            wifi_score_df.write.mode("overwrite").parquet(
+                f"{self.output_path}/date={self.date_str}/hour={self.hour_str}"
+            )
+        else:
+            sys.path.append('/usr/apps/vmas/script/ZS') 
+            from MailSender import MailSender
+            mail_sender = MailSender()
+            mail_sender.send(text = f"Estimated row count{date_str} {hour_str}: {estimated_total:,.0f} — below threshold, skipping write", subject="wifiScore_ZheS failed")
+            print(f"Estimated row count: {estimated_total:,.0f} — below threshold, skipping write")
+
+        #wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
+        #return wifi_score_df
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('Zhe_bhr_wifi_score_hourly_report_v1')\
