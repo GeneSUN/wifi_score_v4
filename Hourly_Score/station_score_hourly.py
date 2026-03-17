@@ -47,6 +47,7 @@ class station_score_hourly:
         df = df.filter(
             ~(
                 (F.col("phy_rate").cast("double") == F.lit(0.0))
+                & (F.col("rssi").cast("double") == F.lit(0.0))
                 & (F.col("p90_rssi").cast("double") == F.lit(-100.0))
             )
         )
