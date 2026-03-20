@@ -734,9 +734,10 @@ class wifiKPIAnalysis:
 
         df_score = df_score.withColumn("wifiScore", worst_score_udf(F.col("reliabilityScore"), F.col("speedScore"), F.col("coverageScore")))
 
-        df_score.filter( F.col("sn")!="G402121101548133" )\
+        df_score.repartition(200)\
+                .filter( F.col("sn")!="G402121101548133" )\
                 .write.mode("overwrite").parquet(self.wifiscore_path)
-
+        
 if __name__ == "__main__":
     spark = SparkSession.builder.appName('Zhe_wifi_score')\
                         .config("spark.ui.port","24045")\
@@ -848,7 +849,7 @@ if __name__ == "__main__":
                 # hdfs file
                 parquet_file = hdfs_pd + f"/user/ZheS/wifi_score_v4/KPI/{file_date}"
                 output_path = hdfs_pd + f"/user/ZheS/wifi_score_v4/aws/{file_date}"
-                models = ['ASK-NCQ1338', 'ASK-NCQ1338FA',"XCI55AX", 'WNC-CR200A', 'ASK-NCM1100', "CR1000A", "CR1000B"]
+                models = ['ASK-NCQ1338', 'ASK-NCQ1338FA',"XCI55AX", 'WNC-CR200A', 'ASK-NCM1100', "CR1000A", "CR1000B","G3100","CHR30A-R"]
 
                 spark.read.parquet(parquet_file)\
                     .filter( F.col("model_name").isin( models ) )\
