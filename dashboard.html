@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi Score Diagnostics</title>
+<style>
+  /* ── reset & base ─────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #f5f4f0;
+    --surface: #ffffff;
+    --border:  #e2e0d8;
+    --text:    #1a1a18;
+    --muted:   #6b6a64;
+    --accent:  #1d6fa5;
+    --accent2: #0f5680;
+    --good:    #1a7a42;
+    --fair:    #a06010;
+    --poor:    #b53030;
+    --tag-bg:  #e8f2fb;
+    --tag-txt: #0f5680;
+    --radius:  10px;
+    --shadow:  0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:      #181816;
+      --surface: #242422;
+      --border:  #38382e;
+      --text:    #e8e6dc;
+      --muted:   #9a9890;
+      --accent:  #5aaedc;
+      --accent2: #3b9acc;
+      --good:    #4cbb78;
+      --fair:    #d4963a;
+      --poor:    #e06060;
+      --tag-bg:  #1a2f3f;
+      --tag-txt: #7bcae8;
+    }
+  }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 16px;
+    line-height: 1.6;
+  }
+
+  /* ── layout ───────────────────────────────────────────────────────────── */
+  .page { max-width: 860px; margin: 0 auto; }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  header .logo {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 18px; font-weight: 700; flex-shrink: 0;
+  }
+  header h1 { font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
+  header p  { font-size: 13px; color: var(--muted); }
+
+  /* ── query card ───────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group label { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .form-group.sn    { flex: 0 0 160px; }
+  .form-group.date  { flex: 0 0 148px; }
+  .form-group.q     { flex: 1 1 260px; }
+
+  input[type="text"], input[type="date"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 9px 12px;
+    font-size: 14px;
+    color: var(--text);
+    width: 100%;
+    outline: none;
+    transition: border-color .15s;
+  }
+  input:focus { border-color: var(--accent); }
+
+  .submit-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+  }
+  button.primary:hover  { background: var(--accent2); }
+  button.primary:active { opacity: .85; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* quick-pick question chips */
+  .chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+  .chip {
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    cursor: pointer;
+    color: var(--muted);
+    background: transparent;
+    transition: border-color .15s, color .15s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── status / spinner ─────────────────────────────────────────────────── */
+  #status { font-size: 13px; color: var(--muted); }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── result ───────────────────────────────────────────────────────────── */
+  #result { display: none; }
+
+  /* question type tag */
+  .q-type-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--tag-bg);
+    color: var(--tag-txt);
+    margin-bottom: 12px;
+    letter-spacing: .3px;
+  }
+
+  /* score tiles */
+  .scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+  @media (max-width: 600px) { .scores { grid-template-columns: repeat(2, 1fr); } }
+  .score-tile {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: var(--surface);
+  }
+  .score-tile .label { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .score-tile .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .value.Excellent { color: var(--good); }
+  .value.Good      { color: var(--good); }
+  .value.Fair      { color: var(--fair); }
+  .value.Poor      { color: var(--poor); }
+
+  /* kpi grid */
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 18px; }
+  @media (max-width: 500px) { .kpis { grid-template-columns: 1fr; } }
+  .kpi-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 8px 12px;
+    background: var(--surface);
+  }
+  .kpi-row .kpi-name { color: var(--muted); }
+  .kpi-row .kpi-val  { font-weight: 600; }
+
+  /* answer box */
+  .answer-summary {
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .answer-detail {
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    margin-bottom: 16px;
+  }
+
+  /* recommendations */
+  .recs h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .rec-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 14px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rec-item:last-child { border-bottom: none; }
+  .rec-num {
+    flex-shrink: 0; width: 22px; height: 22px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* metrics cited pills */
+  .cited { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
+  .cited-pill {
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: monospace;
+  }
+
+  /* error box */
+  .error {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: #b91c1c;
+    font-size: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .error { background: #2d1515; border-color: #7f2020; color: #f07070; }
+  }
+
+  /* ── history list ─────────────────────────────────────────────────────── */
+  #history-section { margin-top: 24px; }
+  #history-section h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .hist-item {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .hist-item:hover { border-color: var(--accent); }
+  .hist-sn   { font-weight: 600; }
+  .hist-q    { color: var(--muted); flex: 1; margin: 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-type { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--tag-bg); color: var(--tag-txt); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo">W</div>
+    <div>
+      <h1>WiFi Score Diagnostics</h1>
+      <p>Ask plain-English questions about any device's metrics</p>
+    </div>
+  </header>
+
+  <!-- Query form -->
+  <div class="card">
+    <h2>Query</h2>
+    <div class="form-row">
+      <div class="form-group sn">
+        <label for="inp-sn">Serial Number (SN)</label>
+        <input type="text" id="inp-sn" placeholder="e.g. AA114400877">
+      </div>
+      <div class="form-group date">
+        <label for="inp-date">Date</label>
+        <input type="date" id="inp-date">
+      </div>
+      <div class="form-group q">
+        <label for="inp-q">Question</label>
+        <input type="text" id="inp-q" placeholder="Why is my WiFi score low?">
+      </div>
+    </div>
+
+    <!-- Quick-pick chips -->
+    <div class="chips" id="chips"></div>
+
+    <div class="submit-row">
+      <button class="primary" id="btn-ask" onclick="submitQuery()">Ask</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <!-- Result area -->
+  <div id="result"></div>
+
+  <!-- History -->
+  <div id="history-section" style="display:none">
+    <h2>Recent queries</h2>
+    <div id="history-list"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+// Change this to your server address if the dashboard is accessed from elsewhere.
+const API_BASE = "http://localhost:8000";
+
+// ── Quick-pick question chips ─────────────────────────────────────────────────
+const QUICK_QUESTIONS = [
+  "Why is my WiFi score low?",
+  "How is the WiFi score calculated?",
+  "Why is speed worse than coverage?",
+  "How can I improve my WiFi?",
+  "What does phyrate mean?",
+  "Are there any anomalies in my metrics?",
+];
+
+(function initChips() {
+  const el = document.getElementById("chips");
+  QUICK_QUESTIONS.forEach(q => {
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.textContent = q;
+    btn.onclick = () => {
+      document.getElementById("inp-q").value = q;
+      submitQuery();
+    };
+    el.appendChild(btn);
+  });
+})();
+
+// Set default date to today
+document.getElementById("inp-date").value = new Date().toISOString().slice(0, 10);
+
+// ── History ───────────────────────────────────────────────────────────────────
+const history = [];
+
+function addToHistory(sn, question, question_type, result) {
+  history.unshift({ sn, question, question_type, result });
+  if (history.length > 10) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const section = document.getElementById("history-section");
+  const list    = document.getElementById("history-list");
+  if (!history.length) { section.style.display = "none"; return; }
+  section.style.display = "block";
+  list.innerHTML = history.map((h, i) => `
+    <div class="hist-item" onclick="showHistoryResult(${i})">
+      <span class="hist-sn">${h.sn}</span>
+      <span class="hist-q">${h.question}</span>
+      <span class="hist-type">${h.question_type}</span>
+    </div>
+  `).join("");
+}
+
+function showHistoryResult(i) {
+  renderResult(history[i].result);
+}
+
+// ── Colour helper for score values ────────────────────────────────────────────
+function scoreClass(val) {
+  if (!val || val === "N/A") return "";
+  if (val.toLowerCase().includes("excellent")) return "Excellent";
+  if (val.toLowerCase().includes("good"))      return "Good";
+  if (val.toLowerCase().includes("fair"))      return "Fair";
+  if (val.toLowerCase().includes("poor"))      return "Poor";
+  // numeric: try to classify
+  const n = parseFloat(val);
+  if (!isNaN(n)) {
+    if (n >= 3.5) return "Excellent";
+    if (n >= 2.5) return "Good";
+    if (n >= 1.5) return "Fair";
+    return "Poor";
+  }
+  return "";
+}
+
+// ── Render a pipeline result ──────────────────────────────────────────────────
+function renderResult(data) {
+  const snap = data.device_snapshot;
+  const ans  = data.answer;
+  const recs = ans.recommendations || [];
+
+  // Score tiles
+  const tiles = [
+    { label: "WiFi Score",    value: snap.wifiScore },
+    { label: "Reliability",   value: snap.reliabilityScore },
+    { label: "Speed",         value: snap.speedScore },
+    { label: "Coverage",      value: snap.coverageScore },
+  ].map(t => `
+    <div class="score-tile">
+      <div class="label">${t.label}</div>
+      <div class="value ${scoreClass(t.value)}">${t.value}</div>
+    </div>
+  `).join("");
+
+  // KPI rows
+  const kpis = [
+    { name: "RSSI",          value: snap.rssi_category },
+    { name: "PHY Rate",      value: snap.phyrate_category },
+    { name: "Reboots",       value: snap.reboot_category },
+    { name: "Airtime",       value: snap.airtime_category },
+  ].map(k => `
+    <div class="kpi-row">
+      <span class="kpi-name">${k.name}</span>
+      <span class="kpi-val ${scoreClass(k.value)}">${k.value}</span>
+    </div>
+  `).join("");
+
+  // Recommendations
+  const recsHtml = recs.length ? `
+    <div class="recs">
+      <h3>Recommendations</h3>
+      ${recs.map((r, i) => `
+        <div class="rec-item">
+          <span class="rec-num">${i + 1}</span>
+          <span>${r}</span>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+
+  // Metrics cited
+  const cited = (ans.metrics_cited || []).map(m =>
+    `<span class="cited-pill">${m}</span>`
+  ).join("");
+
+  const html = `
+    <div class="card">
+      <div class="q-type-tag">${data.question_type}</div>
+      <div class="scores">${tiles}</div>
+      <div class="kpis">${kpis}</div>
+      <div class="answer-summary">${ans.summary}</div>
+      <div class="answer-detail">${ans.detail}</div>
+      ${recsHtml}
+      ${cited ? `<div class="cited">${cited}</div>` : ""}
+    </div>
+  `;
+
+  const el = document.getElementById("result");
+  el.innerHTML = html;
+  el.style.display = "block";
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ── Submit query ──────────────────────────────────────────────────────────────
+async function submitQuery() {
+  const sn       = document.getElementById("inp-sn").value.trim();
+  const question = document.getElementById("inp-q").value.trim();
+  const date     = document.getElementById("inp-date").value.trim();
+
+  if (!sn || !question) {
+    setStatus("Please fill in SN and question.", false);
+    return;
+  }
+
+  setLoading(true);
+
+  const body = { sn, question };
+  if (date) body.target_date = date;
+
+  try {
+    const resp = await fetch(`${API_BASE}/ask`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+
+    setLoading(false);
+    renderResult(data);
+    addToHistory(sn, question, data.question_type, data);
+
+  } catch (e) {
+    setLoading(false);
+    document.getElementById("result").innerHTML =
+      `<div class="error">Error: ${e.message}</div>`;
+    document.getElementById("result").style.display = "block";
+  }
+}
+
+// Allow Enter key to submit
+document.getElementById("inp-q").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitQuery();
+});
+document.getElementById("inp-sn").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitQuery();
+});
+
+function setLoading(on) {
+  const btn = document.getElementById("btn-ask");
+  btn.disabled = on;
+  setStatus(on
+    ? `<span class="spinner"></span>Running pipeline…`
+    : "", on);
+}
+
+function setStatus(msg, isHtml = true) {
+  const el = document.getElementById("status");
+  if (isHtml) el.innerHTML = msg;
+  else        el.textContent = msg;
+}
+</script>
+</body>
+</html>
