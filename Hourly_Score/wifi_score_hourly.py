@@ -1,3 +1,60 @@
+"""
+Docstring for wifi_score_hourly
+
+This class calculates a holistic Wi-Fi Quality Score by evaluating three key pillars: 
+Speed, Coverage, and Reliability. It uses a data-driven weighting system to ensure 
+that the most active devices in a home have the greatest impact on the final score.
+
+Phase 1: Data Consumption Analysis 📉
+The script identifies 'Heavy Hitters' by calculating the total bytes (bs + br) 
+per station.
+- Usage Limit: Filters out records exceeding ~1.8GB/hour to remove anomalies.
+- Ranking: Devices within a home (sn) are ranked by total data consumption.
+
+Phase 2: The Three Performance Pillars 🏗️
+The script calculates individual scores (1-4) for three dimensions:
+
+1. Speed Score ⚡ (Based on p90 TX PHY Rate):
+   -------------------------------------------------------------------------
+   | Band | Excellent (4) | Good (3)       | Fair (2)       | Poor (1)     |
+   |------|---------------|----------------|----------------|--------------|
+   | 2.4G | > 120 Mbps    | 101-120 Mbps   | 80-100 Mbps    | < 80 Mbps    |
+   | 5G   | > 400 Mbps    | 301-400 Mbps   | 200-300 Mbps   | < 200 Mbps   |
+   -------------------------------------------------------------------------
+
+2. Coverage Score 📡 (Based on p90 RSSI):
+   -------------------------------------------------------------------------
+   | Band | Excellent (4) | Good (3)       | Fair (2)       | Poor (1)     |
+   |------|---------------|----------------|----------------|--------------|
+   | 2.4G | >= -55 dBm    | -70 to -56 dBm | -79 to -71 dBm | < -79 dBm    |
+   | 5G   | >= -55 dBm    | -70 to -56 dBm | -77 to -71 dBm | < -77 dBm    |
+   -------------------------------------------------------------------------
+
+3. Reliability Score 🛡️ (Based on p90 Airtime Utilization):
+   -------------------------------------------------------------------------
+   | Metric             | Excellent (4) | Good (3) | Fair (2) | Poor (1)    |
+   |--------------------|---------------|----------|----------|-------------|
+   | Airtime Util (2.4G)| < 40%         | 40-50%   | 50-70%   | > 70%       |
+   -------------------------------------------------------------------------
+
+Phase 3: Home-Level Weighting (The 80/20 Rule) ⚖️
+To reflect actual user experience, individual station scores are aggregated 
+into a weighted home average:
+- Top 5 Devices (by consumption): Account for 80% of the home score.
+- Remaining Devices: Account for 20% of the home score.
+
+Phase 4: Variation Penalty & Final Calculation 🏆
+- Stability Check: If SNR range > 13, a 'Speed Variation' penalty (1 point) 
+  is subtracted.
+- Final Score: The arithmetic mean of the Speed, Coverage, and Reliability 
+  pillars.
+- Categorization:
+    - > 3.5: Excellent (4)
+    - > 2.5: Good (3)
+    - > 1.5: Fair (2)
+    - <= 1.5: Poor (1)
+"""
+
 from datetime import datetime, timedelta, date
 from functools import reduce
 
@@ -20,39 +77,8 @@ import pandas as pd
 import sys 
 import time
 
-class LogTime:
-    def __init__(self, verbose=True, minimum_unit="microseconds") -> None:
-        self.minimum_unit = minimum_unit
-        self.elapsed = None
-        self.verbose = verbose
-
-    def __enter__(self):
-        self.start = time.time()
-        return self
-
-    def __exit__(self, *args):
-        self.elapsed = time.time() - self.start
-        self.elapsed_str = self._format_time(self.elapsed)
-        if self.verbose:
-            print(f"Time Elapsed: {self.elapsed_str}")
-
-    def _format_time(self, seconds: float) -> str:
-        """
-        Convert seconds into a human-readable string.
-        """
-        if seconds < 1e-3:  # less than 1 ms
-            return f"{seconds*1e6:.2f} µs"
-        elif seconds < 1:   # less than 1 second
-            return f"{seconds*1e3:.2f} ms"
-        elif seconds < 60:  # less than 1 minute
-            return f"{seconds:.2f} s"
-        elif seconds < 3600:  # less than 1 hour
-            m, s = divmod(seconds, 60)
-            return f"{int(m)}m {s:.2f}s"
-        else:
-            h, r = divmod(seconds, 3600)
-            m, s = divmod(r, 60)
-            return f"{int(h)}h {int(m)}m {s:.2f}s"
+sys.path.append('/usr/apps/vmas/script/ZS/HourlyScore') 
+from StationConnection import parse_args, LogTime
 
 class wifi_score_hourly:
     global hdfs_pd, hdfs_pa
@@ -63,9 +89,9 @@ class wifi_score_hourly:
                  date_str,
                  hour_str,
                  source_df,
-                 station_history_path = hdfs_pa + f"/sha_data/StationHistory/",
-                 device_groups_path = hdfs_pa + f"/sha_data/DeviceGroups/",
-                 output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/"
+                 station_history_path,
+                 device_groups_path,
+                 output_path
                  ):
         self.spark = spark
         self.data_consumption_df = None
@@ -83,8 +109,6 @@ class wifi_score_hourly:
          .withColumn("date", F.lit(date_part))\
          .withColumn("hour", F.lit(hour_part))\
          .createOrReplaceTempView('bhrx_stationhistory_version_001')
-            
-        print(f"Reading data consumption for date={date_part}, hour={hour_part}")
         
         data_consumption_query = f"""
             SELECT
@@ -113,59 +137,101 @@ class wifi_score_hourly:
         return data_consumption_df
 
     def calculate_speed_score(self, source_df, data_consumption_df):
-        source_df.createOrReplaceTempView('station_hourly_data_speed')
 
-        station_hourly_data_with_count = self.spark.sql('''
-            SELECT
-                *,
-                COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour) as record_count
-            FROM station_hourly_data_speed
-        ''')
-        spark.catalog.dropTempView('station_hourly_data_speed')
+        window_spec = Window.partitionBy("sn", "station_mac", "date", "hour")
 
-        #station_hourly_data_with_count.cache()
-        station_hourly_data_with_count.createOrReplaceTempView('station_hourly_data_cached_speed')
+        station_hourly_data_cached_speed = source_df.withColumn(
+                                    "record_count", 
+                                    F.count("*").over(window_spec)
+                                )
 
-        combined_base_score = self.spark.sql('''
-            WITH
-            pivoted_data AS (
-                SELECT
-                sn, station_mac, date, hour,
-                MAX(model) as model,
-                MAX(mobility_status) as mobility_status,
-                MAX(station_name) as station_name,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_2_4g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_5g
-                FROM station_hourly_data_cached_speed
-                WHERE record_count >= 9
-                and CAST(tx_phy_rate AS DOUBLE) > 24
-                GROUP BY sn, station_mac, date, hour
-            ),
-            base_scores AS (
-                SELECT
-                *,
-                CASE 
-                    WHEN p90_phy_rate_2_4g > 120 THEN 4 
-                    WHEN p90_phy_rate_2_4g BETWEEN 101 AND 120 THEN 3 
-                    WHEN p90_phy_rate_2_4g BETWEEN 80 AND 100 THEN 2 
-                    WHEN p90_phy_rate_2_4g < 80 THEN 1 
-                END AS phy_rate_score_2_4g,
-                CASE 
-                    WHEN p90_phy_rate_5g > 400 THEN 4 
-                    WHEN p90_phy_rate_5g BETWEEN 301 AND 400 THEN 3 
-                    WHEN p90_phy_rate_5g BETWEEN 200 AND 300 THEN 2 
-                    WHEN p90_phy_rate_5g < 200 THEN 1 
-                END AS phy_rate_score_5g
-                FROM pivoted_data
+        # -----------------------------
+        # 1) pivoted_data (same logic as SQL)
+        #   - record_count >= 8
+        #   - CAST(tx_phy_rate AS DOUBLE) > 24
+        #   - p90 tx_phy_rate for 2.4/5/6
+        # -----------------------------
+        pivoted_data = (
+            station_hourly_data_cached_speed.filter((F.col("record_count") >= 8) & (F.col("tx_phy_rate").cast("double") > 24))
+            .groupBy("sn", "station_mac", "date", "hour")
+            .agg(
+                F.max("model").alias("model"),
+                F.max("mobility_status").alias("mobility_status"),
+                F.max("station_name").alias("station_name"),
+
+                # APPROX_PERCENTILE(...) -> percentile_approx in Spark
+                F.expr(
+                    "percentile_approx(CASE WHEN band LIKE '2.4G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.90)"
+                ).alias("p90_phy_rate_2_4g"),
+                F.expr(
+                    "percentile_approx(CASE WHEN band LIKE '5G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.90)"
+                ).alias("p90_phy_rate_5g"),
+                F.expr(
+                    "percentile_approx(CASE WHEN band LIKE '6G%' THEN CAST(tx_phy_rate AS DOUBLE) END, 0.90)"
+                ).alias("p90_phy_rate_6g"),
             )
-            SELECT
-            *,
-            (CASE WHEN phy_rate_score_2_4g IS NOT NULL THEN phy_rate_score_2_4g ELSE 0 END +
-            CASE WHEN phy_rate_score_5g IS NOT NULL THEN phy_rate_score_5g ELSE 0 END) /
-            NULLIF((CASE WHEN phy_rate_score_2_4g IS NOT NULL THEN 1 ELSE 0 END +
-                    CASE WHEN phy_rate_score_5g IS NOT NULL THEN 1 ELSE 0 END), 0) AS station_base_score_step1_speed
-            FROM base_scores
-        ''')
+        )
+
+        # -----------------------------
+        # 2) base_scores
+        # Change thresholds to match your *previous* script style:
+        #   - 2.4G: >=50 ->4, 20-49 ->3, 10-19 ->2, <10 ->1
+        #   - 5G  : >=200->4, 100-199->3, 50-99 ->2, <50 ->1
+        # Add 6G: (use same as 5G unless you have a different rule)
+        # -----------------------------
+        base_scores = (
+            pivoted_data
+            .withColumn(
+                "phy_rate_score_2_4g",
+                F.when(F.col("p90_phy_rate_2_4g") >= 50, 4)
+                .when((F.col("p90_phy_rate_2_4g") >= 20) & (F.col("p90_phy_rate_2_4g") <= 49), 3)
+                .when((F.col("p90_phy_rate_2_4g") >= 10) & (F.col("p90_phy_rate_2_4g") <= 19), 2)
+                .when(F.col("p90_phy_rate_2_4g") < 10, 1)
+            )
+            .withColumn(
+                "phy_rate_score_5g",
+                F.when(F.col("p90_phy_rate_5g") >= 200, 4)
+                .when((F.col("p90_phy_rate_5g") >= 100) & (F.col("p90_phy_rate_5g") <= 199), 3)
+                .when((F.col("p90_phy_rate_5g") >= 50) & (F.col("p90_phy_rate_5g") <= 99), 2)
+                .when(F.col("p90_phy_rate_5g") < 50, 1)
+            )
+            .withColumn(
+                "phy_rate_score_6g",
+                F.when(F.col("p90_phy_rate_6g") >= 200, 4)
+                .when((F.col("p90_phy_rate_6g") >= 100) & (F.col("p90_phy_rate_6g") <= 199), 3)
+                .when((F.col("p90_phy_rate_6g") >= 50) & (F.col("p90_phy_rate_6g") <= 99), 2)
+                .when(F.col("p90_phy_rate_6g") < 50, 1)
+            )
+        )
+
+        # -----------------------------
+        # 3) station_base_score_step1_speed
+        # Original SQL = average of available (non-null) band scores (2.4 & 5).
+        # Now extend to (2.4, 5, 6) with same averaging logic:
+        #   sum(scores where not null) / count(non-null scores)
+        # -----------------------------
+        combined_base_score = (
+            base_scores
+            .withColumn(
+                "station_base_score_step1_speed",
+                (
+                    F.coalesce(F.col("phy_rate_score_2_4g").cast("double"), F.lit(0.0)) +
+                    F.coalesce(F.col("phy_rate_score_5g").cast("double"), F.lit(0.0)) +
+                    F.coalesce(F.col("phy_rate_score_6g").cast("double"), F.lit(0.0))
+                )
+                /
+                F.when(
+                    (F.col("phy_rate_score_2_4g").isNotNull().cast("int") +
+                    F.col("phy_rate_score_5g").isNotNull().cast("int") +
+                    F.col("phy_rate_score_6g").isNotNull().cast("int")) == 0,
+                    F.lit(None).cast("double")   # mimic NULLIF(...,0) => NULL when denominator=0
+                ).otherwise(
+                    (F.col("phy_rate_score_2_4g").isNotNull().cast("int") +
+                    F.col("phy_rate_score_5g").isNotNull().cast("int") +
+                    F.col("phy_rate_score_6g").isNotNull().cast("int")).cast("double")
+                )
+            )
+        )
         
         combined_base_score = combined_base_score.alias("bs").join(
             data_consumption_df.alias("dc"),
@@ -212,26 +278,25 @@ class wifi_score_hourly:
 
         output_df_with_weighted_base = output_df_with_weighted_base.drop("rank_per_sn", "avg_t_per_sn", "avg_b_per_sn")
 
-        variation_cal = self.spark.sql('''
-            WITH
-            variation_components AS (
-                SELECT
-                sn, station_mac, date, hour,
-                MAX(CAST(snr AS DOUBLE)) - MIN(CAST(snr AS DOUBLE)) as snr_range
-                FROM station_hourly_data_cached_speed
-                WHERE record_count >= 9
-                AND CAST(snr AS DOUBLE) BETWEEN 0 AND 50
-                GROUP BY sn, station_mac, date, hour
+        # 1. Aggregation Phase (variation_components CTE)
+        variation_components_df = (
+            station_hourly_data_cached_speed
+            .filter(
+                (F.col("record_count") >= 8) & 
+                (F.col("snr").cast("double").between(0, 95))
             )
-            SELECT
-            sn, station_mac, date, hour,
-            snr_range,
-            CASE
-                WHEN snr_range > 13 THEN 1
-                ELSE 0
-            END AS speed_variation_score
-            FROM variation_components
-        ''')
+            .groupBy("sn", "station_mac", "date", "hour")
+            .agg(
+                (F.max(F.col("snr").cast("double")) - F.min(F.col("snr").cast("double"))).alias("snr_range")
+            )
+        )
+
+        # 2. Scoring Phase
+        variation_cal = variation_components_df.withColumn(
+            "speed_variation_score",
+            F.when(F.col("snr_range") > 13, 1).otherwise(0)
+        )
+
 
         final_speed_score_df = output_df_with_weighted_base.alias("b").join(
             variation_cal.alias("v"),
@@ -247,8 +312,12 @@ class wifi_score_hourly:
             "b.hour",
             "b.p90_phy_rate_2_4g as p90_phy_rate_2_4g_speed",
             "b.p90_phy_rate_5g as p90_phy_rate_5g_speed",  
+            "b.p90_phy_rate_6g   as p90_phy_rate_6g_speed",          # ✅ NEW
+
             "b.phy_rate_score_2_4g as phy_rate_score_2_4g_speed",
             "b.phy_rate_score_5g as phy_rate_score_5g_speed",
+            "b.phy_rate_score_6g   as phy_rate_score_6g_speed",      # ✅ NEW
+
             "v.snr_range AS snr_range_variation",
             "b.station_base_score_step1_speed as individual_station_avg_base_score_speed",
             "b.weighted_avg_base_score_speed as home_weighted_avg_base_score_speed",
@@ -282,10 +351,12 @@ class wifi_score_hourly:
                 MAX(model) as model,
                 MAX(mobility_status) as mobility_status,
                 MAX(station_name) as station_name,
+                APPROX_PERCENTILE(CASE WHEN band LIKE '6G%' THEN CAST(rssi AS DOUBLE) END, 0.90) AS p90_rssi_6g,
                 APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(rssi AS DOUBLE) END, 0.90) AS p90_rssi_2_4g,
                 APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(rssi AS DOUBLE) END, 0.90) AS p90_rssi_5g
+                
                 FROM station_hourly_data_cached_coverage
-                WHERE record_count >= 9
+                WHERE record_count >= 8
                 GROUP BY sn, station_mac, date, hour
             ),
             base_scores AS (
@@ -302,7 +373,17 @@ class wifi_score_hourly:
                     WHEN p90_rssi_5g BETWEEN -70 AND -56 THEN 3 
                     WHEN p90_rssi_5g BETWEEN -77 AND -71 THEN 2 
                     WHEN p90_rssi_5g < -77 THEN 1 
-                END AS rssi_score_5g
+                END AS rssi_score_5g,
+                                             
+                -- ✅ NEW: 6G coverage thresholds (use same as 5G unless you have a new spec)
+                CASE
+                    WHEN p90_rssi_6g >= -55 THEN 4
+                    WHEN p90_rssi_6g BETWEEN -70 AND -56 THEN 3
+                    WHEN p90_rssi_6g BETWEEN -77 AND -71 THEN 2
+                    WHEN p90_rssi_6g < -77 THEN 1
+                END AS rssi_score_6g
+                                             
+                                             
                 FROM pivoted_data
             )
             SELECT
@@ -365,7 +446,7 @@ class wifi_score_hourly:
                 SELECT
                 sn, station_mac, date, hour
                 FROM station_hourly_data_cached_coverage
-                WHERE record_count >= 9
+                WHERE record_count >= 8
                 GROUP BY sn, station_mac, date, hour
             )
             SELECT
@@ -389,8 +470,12 @@ class wifi_score_hourly:
             "b.hour",
             "b.p90_rssi_2_4g",
             "b.p90_rssi_5g",
+            "b.p90_rssi_6g",              # ✅ NEW
+
             "b.rssi_score_2_4g",
             "b.rssi_score_5g",
+            "b.rssi_score_6g",            # ✅ NEW
+
             "v.rssi_range AS rssi_range_variation", 
             "b.station_base_score_step1_coverage as individual_station_avg_base_score_coverage",
             "b.weighted_avg_base_score_coverage as home_weighted_avg_base_score_coverage",
@@ -433,7 +518,6 @@ class wifi_score_hourly:
 
         reliability_df = self.spark.sql(reliability_query)
 
-
         reliability_score_df = reliability_df.withColumn(
             "reliability_score_num",
             F.when(F.col("p90_airtime_util_2_4g") < 40, 4)
@@ -451,7 +535,7 @@ class wifi_score_hourly:
 
         wifi_score_df = self.speed_score_df.alias("s").join(
                 self.coverage_score_df.alias("c"),
-                on=['sn', 'station_mac', 'date', 'hour', 'model', 'mobility_status', 'station_name'],
+                on=['sn', 'station_mac', 'date', 'hour', 'model', 'station_name'],
                 how='inner'
             ).join(
                 self.reliability_score_df.alias("r"),
@@ -467,16 +551,24 @@ class wifi_score_hourly:
                 "s.hour",
                 "s.p90_phy_rate_2_4g_speed",
                 "s.p90_phy_rate_5g_speed",
+                "s.p90_phy_rate_6g_speed",              # ✅ NEW
+
                 "s.phy_rate_score_2_4g_speed",
                 "s.phy_rate_score_5g_speed",
+                "s.phy_rate_score_6g_speed",            # ✅ NEW
+
                 "s.snr_range_variation", 
                 "s.home_weighted_avg_base_score_speed",
                 "s.speed_variation_score",
                 "s.speed_score_num",
                 "c.p90_rssi_2_4g",
                 "c.p90_rssi_5g",
+                "c.p90_rssi_6g",                         # ✅ NEW
+
                 "c.rssi_score_2_4g",
                 "c.rssi_score_5g",
+                "c.rssi_score_6g",                       # ✅ NEW
+
                 "c.rssi_range_variation",
                 "c.home_weighted_avg_base_score_coverage",
                 "c.coverage_variation_score",
@@ -541,7 +633,7 @@ class wifi_score_hourly:
                 """
             )
 
-        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/{self.date_str}/{self.hour_str}")
+        wifi_score_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
         return wifi_score_df
 
 if __name__ == "__main__":
@@ -549,24 +641,49 @@ if __name__ == "__main__":
                         .config("spark.ui.port","24045")\
                         .getOrCreate()
 
-    
-    date_str = "20250930"
-    hour_str = "15"
-    #station_connection_hourly
+    # --------------------------------------------------------
+    # Parse Input Arguments or Auto-Generate Date/Hour
+    # --------------------------------------------------------
+    args = parse_args()
+
+    if args.date_str and args.hour_str:
+        date_str = args.date_str
+        hour_str = args.hour_str
+        print(f"[INFO] Using passed-in date/hour: {date_str} {hour_str}")
+    else:
+        current_datetime = datetime.now() + timedelta(hours=3)
+        date_str = current_datetime.strftime("%Y%m%d")
+        hour_str = current_datetime.strftime("%H")
+        print(f"[INFO] Auto-generated date/hour: {date_str} {hour_str}")
+    # --------------------------------------------------------
+    # Define HDFS Paths
+    # --------------------------------------------------------
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
-    hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
+    hdfs_pa = "hdfs://njbbepapa1.nss.vzwnet.com:9000"
 
-    station_history_path = hdfs_pa + f"/sha_data/StationHistory/"
+    station_history_path = f"{hdfs_pa}/sha_data/StationHistory"
+    device_groups_path = f"{hdfs_pa}/sha_data/DeviceGroups"
+    station_connection_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_connection_hourly"
+    wifi_score_output_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/wifi_score_hourly"
 
-    station_connection_df = spark.read.parquet(f"{hdfs_pa}/sha_data//vz-bhr-athena/reports/station_connection_houry/")
 
-
+    # --------------------------------------------------------
+    # Run WiFi Score Hourly Processor
+    # --------------------------------------------------------
     with LogTime() as timer:
+        
+        station_connection_df = spark.read.parquet(station_connection_path)
+
         wifi_score_runner = wifi_score_hourly(
-                                    spark,
-                                    date_str,
-                                    hour_str,
-                                    station_connection_df,
-                                    output_path = f"/sha_data/vz-bhr-athena/reports/bhr_wifi_score_hourly_report_v1/{date_str}/{hour_str}"
-                                        )
+            spark=spark,
+            date_str=date_str,
+            hour_str=hour_str,
+            source_df=station_connection_df,
+            station_history_path=station_history_path,
+            device_groups_path=device_groups_path,
+            output_path=wifi_score_output_path
+        )
         wifi_score_runner.run()
+
+
+

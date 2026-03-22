@@ -19,209 +19,347 @@ import pandas as pd
 import sys 
 import time
 
-class LogTime:
-    def __init__(self, verbose=True, minimum_unit="microseconds") -> None:
-        self.minimum_unit = minimum_unit
-        self.elapsed = None
-        self.verbose = verbose
-
-    def __enter__(self):
-        self.start = time.time()
-        return self
-
-    def __exit__(self, *args):
-        self.elapsed = time.time() - self.start
-        self.elapsed_str = self._format_time(self.elapsed)
-        if self.verbose:
-            print(f"Time Elapsed: {self.elapsed_str}")
-
-    def _format_time(self, seconds: float) -> str:
-        """
-        Convert seconds into a human-readable string.
-        """
-        if seconds < 1e-3:  # less than 1 ms
-            return f"{seconds*1e6:.2f} µs"
-        elif seconds < 1:   # less than 1 second
-            return f"{seconds*1e3:.2f} ms"
-        elif seconds < 60:  # less than 1 minute
-            return f"{seconds:.2f} s"
-        elif seconds < 3600:  # less than 1 hour
-            m, s = divmod(seconds, 60)
-            return f"{int(m)}m {s:.2f}s"
-        else:
-            h, r = divmod(seconds, 3600)
-            m, s = divmod(r, 60)
-            return f"{int(h)}h {int(m)}m {s:.2f}s"
-
+sys.path.append('/usr/apps/vmas/script/ZS/HourlyScore') 
+from StationConnection import parse_args, LogTime, StationConnectionProcessor
 
 class station_score_hourly:
     global hdfs_pd, hdfs_pa
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
-    hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
-    def __init__(self,
-                 spark,
-                 date_str,
-                 hour_str,
-                 source_df,
-                 output_path = hdfs_pa + f"/sha_data//vz-bhr-athena/reports/bhr_station_score_hourly_report_temp/"
-                 ):
+    hdfs_pa = "hdfs://njbbepapa1.nss.vzwnet.com:9000"
+
+    def __init__(self, spark, date_str, hour_str, source_df, output_path):
         self.spark = spark
         self.date_str = date_str
         self.hour_str = hour_str
         self.source_df = source_df
-
         self.output_path = output_path
 
-    def run(self, source_df = None):
+    def run(self, source_df=None):
         if source_df is not None:
             self.source_df = source_df
 
-        self.source_df.createOrReplaceTempView('station_hourly_data')
-        station_hourly_data_with_count = self.spark.sql('''
-            SELECT
-                *,
-                COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour) as record_count
-            FROM station_hourly_data
-        ''')
-        station_hourly_data_with_count.createOrReplaceTempView('station_hourly_data_cached')
+        df = self.source_df
 
-        combined_base_score = self.spark.sql('''
-            WITH
-            pivoted_data AS (
-                SELECT
-                sn, station_mac, date, hour,
-                MAX(model) as model,
-                MAX(mobility_status) as mobility_status,
-                MAX(station_name) as station_name,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.90) AS p90_rssi_2_4g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.90) AS p90_rssi_5g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.50) AS p50_rssi_2_4g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.50) AS p50_rssi_5g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.95) AS p95_rssi_2_4g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(p90_rssi AS DOUBLE) END, 0.95) AS p95_rssi_5g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '2.4G%' THEN CAST(phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_2_4g,
-                APPROX_PERCENTILE(CASE WHEN band LIKE '5G%' THEN CAST(phy_rate AS DOUBLE) END, 0.9) AS p90_phy_rate_5g
-                FROM station_hourly_data_cached
-                WHERE record_count >= 9
-                GROUP BY sn, station_mac, date, hour
-            ),
-            base_scores AS (
-                SELECT
-                *,
-                CASE WHEN p90_rssi_2_4g >= -65 THEN 4 WHEN p90_rssi_2_4g BETWEEN -75 AND -66 THEN 3 WHEN p90_rssi_2_4g BETWEEN -85 AND -76 THEN 2 WHEN p90_rssi_2_4g < -85 THEN 1 END AS rssi_score_2_4g,
-                CASE WHEN p90_rssi_5g >= -68 THEN 4 WHEN p90_rssi_5g BETWEEN -78 AND -69 THEN 3 WHEN p90_rssi_5g BETWEEN -88 AND -79 THEN 2 WHEN p90_rssi_5g < -88 THEN 1 END AS rssi_score_5g,
-                CASE WHEN p90_phy_rate_2_4g >= 50 THEN 4 WHEN p90_phy_rate_2_4g BETWEEN 20 AND 49 THEN 3 WHEN p90_phy_rate_2_4g BETWEEN 10 AND 19 THEN 2 WHEN p90_phy_rate_2_4g < 10 THEN 1 END AS phy_rate_score_2_4g,
-                CASE WHEN p90_phy_rate_5g >= 200 THEN 4 WHEN p90_phy_rate_5g BETWEEN 100 AND 199 THEN 3 WHEN p90_phy_rate_5g BETWEEN 50 AND 99 THEN 2 WHEN p90_phy_rate_5g < 50 THEN 1 END AS phy_rate_score_5g
-                FROM pivoted_data
+        # ============================================================
+        # [NEW - Req 1] Remove rows where PhyRate = 0 AND RSSI = -100
+        #               These are sentinel/invalid "no signal" records.
+        # ============================================================
+        df = df.filter(
+            ~(
+                (F.col("phy_rate").cast("double") == F.lit(0.0))
+                & (F.col("p90_rssi").cast("double") == F.lit(-100.0))
             )
-            SELECT
-            *,
-            CASE WHEN rssi_score_2_4g IS NOT NULL AND rssi_score_5g IS NOT NULL THEN LEAST(rssi_score_2_4g, rssi_score_5g) WHEN rssi_score_2_4g IS NOT NULL THEN rssi_score_2_4g ELSE rssi_score_5g END AS final_rssi_score,
-            CASE WHEN phy_rate_score_2_4g IS NOT NULL AND phy_rate_score_5g IS NOT NULL THEN LEAST(phy_rate_score_2_4g, phy_rate_score_5g) WHEN phy_rate_score_2_4g IS NOT NULL THEN phy_rate_score_2_4g ELSE phy_rate_score_5g END AS final_phy_rate_score
-            FROM base_scores
-        ''')
+        )
+        # ============================================================
+        # [NEW - Req 2] Remove rows with no data (null in all key
+        #               metric columns used for scoring).
+        # ============================================================
+        df = df.filter(
+            F.col("p90_rssi").isNotNull()
+            | F.col("phy_rate").isNotNull()
+            | F.col("snr").isNotNull()
+        )
+        # ============================================================
+        # [NEW - Req 3] Remove Ethernet devices — band = 'ETH' (or
+        #               similar). Adjust the pattern if your data uses
+        #               a different label (e.g. 'Ethernet', 'eth').
+        # ============================================================
+        df = df.filter(
+            ~F.col("band").isin("ETH", "Ether", "ethernet")
+            & F.col("band").isNotNull()
+        )
+        
+        # ------------------------------------------------------------
+        # 1) record_count = COUNT(*) OVER (PARTITION BY sn, station_mac, date, hour)
+        # ------------------------------------------------------------
+        w = Window.partitionBy("sn", "station_mac", "date", "hour")
+        df_wc = df.withColumn("record_count", F.count(F.lit(1)).over(w))
 
-        variation_cal = self.spark.sql('''
-            WITH
-            variation_components AS (
-                SELECT
-                sn, station_mac, date, hour,
-                MAX(CAST(snr AS DOUBLE)) - MIN(CAST(snr AS DOUBLE)) as snr_range,
-                SUM(CASE WHEN son >= 1 THEN 1 ELSE 0 END) as son_count,
-                MAX(CASE WHEN band LIKE '2.4G%' THEN CAST(phy_rate AS DOUBLE) END) - MIN(CASE WHEN band LIKE '2.4G%' THEN CAST(phy_rate AS DOUBLE) END) as phy_rate_range_2_4g,
-                MAX(CASE WHEN band LIKE '5G%' THEN CAST(phy_rate AS DOUBLE) END) - MIN(CASE WHEN band LIKE '5G%' THEN CAST(phy_rate AS DOUBLE) END) as phy_rate_range_5g
-                FROM station_hourly_data_cached
-                WHERE record_count >= 9
-                GROUP BY sn, station_mac, date, hour
+        # SQL used WHERE record_count >= 9 for both branches
+        df_filt = df_wc.filter(F.col("record_count") >= F.lit(9))
+
+        # ------------------------------------------------------------
+        # 2) pivoted_data: group + approx percentiles + max fields
+        # ------------------------------------------------------------
+        pivoted = (
+            df_filt.groupBy("sn", "station_mac", "date", "hour")
+            .agg(
+                F.max("model").alias("model"),
+                F.max("mobility_status").alias("mobility_status"),
+                F.max("station_name").alias("station_name"),
+
+                # --- RSSI Percentiles ---
+                F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("p90_rssi").cast("double")), 0.90).alias("p90_rssi_2_4g"),
+                F.percentile_approx(F.when(F.col("band").like("5G%"), F.col("p90_rssi").cast("double")), 0.90).alias("p90_rssi_5g"),
+                F.percentile_approx(F.when(F.col("band").like("6G%"), F.col("p90_rssi").cast("double")), 0.90).alias("p90_rssi_6g"), # Added 6G
+                
+                F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("p90_rssi").cast("double")), 0.50).alias("p50_rssi_2_4g"),
+                F.percentile_approx(F.when(F.col("band").like("5G%"), F.col("p90_rssi").cast("double")), 0.50).alias("p50_rssi_5g"),
+                F.percentile_approx(F.when(F.col("band").like("6G%"), F.col("p90_rssi").cast("double")), 0.50).alias("p50_rssi_6g"), # Added 6G
+                
+                F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("p90_rssi").cast("double")), 0.95).alias("p95_rssi_2_4g"),
+                F.percentile_approx(F.when(F.col("band").like("5G%"), F.col("p90_rssi").cast("double")), 0.95).alias("p95_rssi_5g"),
+                F.percentile_approx(F.when(F.col("band").like("6G%"), F.col("p90_rssi").cast("double")), 0.95).alias("p95_rssi_6g"), # Added 6G
+                
+                # --- PHY Rate Percentiles ---
+                F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("phy_rate").cast("double")), 0.9).alias("p90_phy_rate_2_4g"),
+                F.percentile_approx(F.when(F.col("band").like("5G%"), F.col("phy_rate").cast("double")), 0.9).alias("p90_phy_rate_5g"),
+                F.percentile_approx(F.when(F.col("band").like("6G%"), F.col("phy_rate").cast("double")), 0.9).alias("p90_phy_rate_6g")  # Added 6G
+
             )
-            SELECT
-            sn, station_mac, date, hour,
-            snr_range,
-            son_count,
-            phy_rate_range_2_4g,
-            phy_rate_range_5g,
-            CASE
-                WHEN snr_range > 13
-                OR son_count > 6
-                OR phy_rate_range_2_4g > 30
-                OR phy_rate_range_5g > 300
-                THEN 1
-                ELSE 0
-            END AS variation_score
-            FROM variation_components
-        ''')
+        )
+
+        # ------------------------------------------------------------
+        # 3) base_scores + final_* scores (match your SQL CASE logic)
+        # ------------------------------------------------------------
 
 
-        output_df = combined_base_score.alias("b").join(
-            variation_cal.alias("v"),
-            on=['sn', 'station_mac', 'date', 'hour'],
-            how='inner'
-        ).selectExpr(
-            "b.sn",
-            "b.station_mac",
-            "b.station_name",
-            "b.model",
-            "b.mobility_status",
-            "b.date",
-            "b.hour",
-            "b.p90_rssi_2_4g AS p90_rssi_2_4g_base",
-            "b.p90_rssi_5g AS p90_rssi_5g_base",
-            "b.p50_rssi_2_4g AS p50_rssi_2_4g_base",
-            "b.p50_rssi_5g AS p50_rssi_5g_base",
-            "b.p95_rssi_2_4g AS p95_rssi_2_4g_base",
-            "b.p95_rssi_5g AS p95_rssi_5g_base",
-            "b.p90_phy_rate_2_4g AS p90_phy_rate_2_4g_base",
-            "b.p90_phy_rate_5g AS p90_phy_rate_5g_base",
-            "b.rssi_score_2_4g AS rssi_score_2_4g_base",
-            "b.rssi_score_5g AS rssi_score_5g_base",
-            "b.phy_rate_score_2_4g AS phy_rate_score_2_4g_base",
-            "b.phy_rate_score_5g AS phy_rate_score_5g_base",
-            "v.snr_range AS snr_range_variation",
-            "v.son_count AS son_count_variation",
-            "v.phy_rate_range_2_4g AS phy_rate_range_2_4g_variation",
-            "v.phy_rate_range_5g AS phy_rate_range_5g_variation",
-            "LEAST(b.final_rssi_score, b.final_phy_rate_score) AS base_score",
-            "v.variation_score",
-            """CASE
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score >= 4 THEN 'Excellent'
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score = 3 THEN 'Good'
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score = 2 THEN 'Fair'
-            ELSE 'Poor'
-            END AS station_score""",
-            """CASE
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score >= 4 THEN 4
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score = 3 THEN 3
-            WHEN LEAST(b.final_rssi_score, b.final_phy_rate_score) - v.variation_score = 2 THEN 2
-            ELSE 1
-            END AS station_score_num"""
+        base_scores = (
+            pivoted
+            # --- RSSI Scores ---
+            .withColumn(
+                "rssi_score_2_4g",
+                F.when(F.col("p90_rssi_2_4g") >= -65, 4)
+                .when(F.col("p90_rssi_2_4g").between(-75, -66), 3)
+                .when(F.col("p90_rssi_2_4g").between(-85, -76), 2)
+                .when(F.col("p90_rssi_2_4g") < -85, 1),
+            )
+            .withColumn(
+                "rssi_score_5g",
+                F.when(F.col("p90_rssi_5g") >= -68, 4)
+                .when(F.col("p90_rssi_5g").between(-78, -69), 3)
+                .when(F.col("p90_rssi_5g").between(-88, -79), 2)
+                .when(F.col("p90_rssi_5g") < -88, 1),
+            )
+            .withColumn(
+                "rssi_score_6g", # Added 6G RSSI logic
+                F.when(F.col("p90_rssi_6g") >= -62, 4)
+                .when(F.col("p90_rssi_6g").between(-72, -63), 3)
+                .when(F.col("p90_rssi_6g").between(-82, -73), 2)
+                .when(F.col("p90_rssi_6g") < -82, 1),
+            )
+            # --- PHY Rate Scores ---
+            .withColumn(
+                "phy_rate_score_2_4g",
+                F.when(F.col("p90_phy_rate_2_4g") >= 50, 4)
+                .when(F.col("p90_phy_rate_2_4g").between(20, 49), 3)
+                .when(F.col("p90_phy_rate_2_4g").between(10, 19), 2)
+                .when(F.col("p90_phy_rate_2_4g") < 10, 1),
+            )
+            .withColumn(
+                "phy_rate_score_5g", # Updated thresholds to 400/200/100
+                F.when(F.col("p90_phy_rate_5g") >= 400, 4)
+                .when(F.col("p90_phy_rate_5g").between(200, 399), 3)
+                .when(F.col("p90_phy_rate_5g").between(100, 199), 2)
+                .when(F.col("p90_phy_rate_5g") < 100, 1),
+            )
+            .withColumn(
+                "phy_rate_score_6g", # Added 6G PHY Rate logic
+                F.when(F.col("p90_phy_rate_6g") >= 1200, 4)
+                .when(F.col("p90_phy_rate_6g").between(600, 1199), 3)
+                .when(F.col("p90_phy_rate_6g").between(200, 599), 2)
+                .when(F.col("p90_phy_rate_6g") < 200, 1),
+            )
+        )
+
+        BIG = 10**9  # bigger than any possible score
+
+        combined_base_score = (
+            base_scores
+            .withColumn(
+                "final_rssi_score",
+                F.least(
+                    F.coalesce(F.col("rssi_score_2_4g"), F.lit(BIG)),
+                    F.coalesce(F.col("rssi_score_5g"),   F.lit(BIG)),
+                    F.coalesce(F.col("rssi_score_6g"),   F.lit(BIG)),
+                )
+            )
+            .withColumn(
+                "final_phy_rate_score",
+                F.least(
+                    F.coalesce(F.col("phy_rate_score_2_4g"), F.lit(BIG)),
+                    F.coalesce(F.col("phy_rate_score_5g"),   F.lit(BIG)),
+                    F.coalesce(F.col("phy_rate_score_6g"),   F.lit(BIG)),
+                )
+            )
+            # if all three were NULL, you probably want NULL (not BIG)
+            .withColumn(
+                "final_rssi_score",
+                F.when(
+                    F.col("rssi_score_2_4g").isNull() & F.col("rssi_score_5g").isNull() & F.col("rssi_score_6g").isNull(),
+                    F.lit(None)
+                ).otherwise(F.col("final_rssi_score"))
+            )
+            .withColumn(
+                "final_phy_rate_score",
+                F.when(
+                    F.col("phy_rate_score_2_4g").isNull() & F.col("phy_rate_score_5g").isNull() & F.col("phy_rate_score_6g").isNull(),
+                    F.lit(None)
+                ).otherwise(F.col("final_phy_rate_score"))
+            )
+        )
+        # ============================================================
+        # [NEW - Req 2 (post-aggregation guard)] Drop any grouped rows
+        #        where BOTH final scores are still NULL after pivoting.
+        #        This catches devices that had rows but all key metrics
+        #        were null across every band after aggregation.
+        # ============================================================
+        combined_base_score = combined_base_score.filter(
+            F.col("final_rssi_score").isNotNull()
+            | F.col("final_phy_rate_score").isNotNull()
         )
 
 
+        # ------------------------------------------------------------
+        # 4) variation_cal (no helper; directly use col.like)
+        # ------------------------------------------------------------
+        variation_components = (
+            df_filt.groupBy("sn", "station_mac", "date", "hour")
+            .agg(
+                (F.max(F.col("snr").cast("double")) - F.min(F.col("snr").cast("double"))).alias("snr_range"),
+                F.sum(F.when(F.col("son") >= F.lit(1), F.lit(1)).otherwise(F.lit(0))).alias("son_count"),
+                (
+                    F.max(F.when(F.col("band").like("2.4G%"), F.col("phy_rate").cast("double")))
+                    - F.min(F.when(F.col("band").like("2.4G%"), F.col("phy_rate").cast("double")))
+                ).alias("phy_rate_range_2_4g"),
+                (
+                    F.max(F.when(F.col("band").like("5G%"), F.col("phy_rate").cast("double")))
+                    - F.min(F.when(F.col("band").like("5G%"), F.col("phy_rate").cast("double")))
+                ).alias("phy_rate_range_5g"),
+            )
+        )
+
+        variation_cal = variation_components.withColumn(
+            "variation_score",
+            F.when(
+                (F.col("snr_range") > F.lit(13))
+                | (F.col("son_count") > F.lit(6))
+                | (F.col("phy_rate_range_2_4g") > F.lit(30))
+                | (F.col("phy_rate_range_5g") > F.lit(300)),
+                F.lit(1),
+            ).otherwise(F.lit(0)),
+        )
+
+        # ------------------------------------------------------------
+        # 5) Join + final output columns (EXACT output/logic)
+        # ------------------------------------------------------------
+        joined = (
+            combined_base_score.alias("b")
+            .join(variation_cal.alias("v"), on=["sn", "station_mac", "date", "hour"], how="inner")
+            .withColumn("base_score", F.least(F.col("b.final_rssi_score"), F.col("b.final_phy_rate_score")))
+        )
+
+        score_val = F.col("base_score") - F.col("v.variation_score")
+
+        output_df = joined.select(
+            F.col("b.sn").alias("sn"),
+            F.col("b.station_mac").alias("station_mac"),
+            F.col("b.station_name").alias("station_name"),
+            F.col("b.model").alias("model"),
+            F.col("b.mobility_status").alias("mobility_status"),
+            F.col("b.date").alias("date"),
+            F.col("b.hour").alias("hour"),
+            F.col("b.p90_rssi_2_4g").alias("p90_rssi_2_4g_base"),
+            F.col("b.p90_rssi_5g").alias("p90_rssi_5g_base"),
+            F.col("b.p90_rssi_6g").alias("p90_rssi_6g_base"),
+
+            F.col("b.p50_rssi_2_4g").alias("p50_rssi_2_4g_base"),
+            F.col("b.p50_rssi_5g").alias("p50_rssi_5g_base"),
+            F.col("b.p50_rssi_6g").alias("p50_rssi_6g_base"),
+
+            F.col("b.p95_rssi_2_4g").alias("p95_rssi_2_4g_base"),
+            F.col("b.p95_rssi_5g").alias("p95_rssi_5g_base"),
+            F.col("b.p95_rssi_6g").alias("p95_rssi_6g_base"),
+
+            F.col("b.p90_phy_rate_2_4g").alias("p90_phy_rate_2_4g_base"),
+            F.col("b.p90_phy_rate_5g").alias("p90_phy_rate_5g_base"),
+            F.col("b.p90_phy_rate_6g").alias("p90_phy_rate_6g_base"),
+
+            F.col("b.rssi_score_2_4g").alias("rssi_score_2_4g_base"),
+            F.col("b.rssi_score_5g").alias("rssi_score_5g_base"),
+            F.col("b.rssi_score_6g").alias("rssi_score_6g_base"), 
+
+            F.col("b.phy_rate_score_2_4g").alias("phy_rate_score_2_4g_base"),
+            F.col("b.phy_rate_score_5g").alias("phy_rate_score_5g_base"),
+            F.col("b.phy_rate_score_6g").alias("phy_rate_score_6g_base"),
+
+            F.col("v.snr_range").alias("snr_range_variation"),
+            F.col("v.son_count").alias("son_count_variation"),
+            F.col("v.phy_rate_range_2_4g").alias("phy_rate_range_2_4g_variation"),
+            F.col("v.phy_rate_range_5g").alias("phy_rate_range_5g_variation"),
+            F.col("base_score").alias("base_score"),
+            F.col("v.variation_score").alias("variation_score"),
+            F.when(score_val >= F.lit(4), F.lit("Excellent"))
+            .when(score_val == F.lit(3), F.lit("Good"))
+            .when(score_val == F.lit(2), F.lit("Fair"))
+            .otherwise(F.lit("Poor"))
+            .alias("station_score"),
+            F.when(score_val >= F.lit(4), F.lit(4))
+            .when(score_val == F.lit(3), F.lit(3))
+            .when(score_val == F.lit(2), F.lit(2))
+            .otherwise(F.lit(1))
+            .alias("station_score_num"),
+        )
+        '''
+        output_df = output_df.filter(
+            ~(
+                F.col("p90_phy_rate_2_4g_base").isNull()
+                & F.col("p90_phy_rate_5g_base").isNull()
+                & F.col("p90_phy_rate_6g_base").isNull()
+                & F.col("p90_rssi_2_4g_base").isNull()
+                & F.col("p90_rssi_5g_base").isNull()
+                & F.col("p90_rssi_6g_base").isNull()
+            )
+        )
+        '''
         output_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
 
 if __name__ == "__main__":
-    spark = SparkSession.builder.appName('Zhe_bhr_wifi_score_hourly_report_v1')\
-                        .config("spark.ui.port","24045")\
+    spark = SparkSession.builder.appName('station_score_hourly')\
+                        .config("spark.ui.port","24049")\
                         .getOrCreate()
 
-    
-    date_str = "20250930"
-    hour_str = "15"
-    #station_connection_hourly
+
+    # --------------------------------------------------------
+    # Parse Input Arguments or Auto-Generate Date/Hour
+    # --------------------------------------------------------
+    args = parse_args()
+
+    if args.date_str and args.hour_str:
+        date_str = args.date_str
+        hour_str = args.hour_str
+        print(f"[INFO] Using passed-in date/hour: {date_str} {hour_str}")
+    else:
+        current_datetime = datetime.now() + timedelta(hours=3)
+        date_str = current_datetime.strftime("%Y%m%d")
+        hour_str = current_datetime.strftime("%H")
+        print(f"[INFO] Auto-generated date/hour: {date_str} {hour_str}")
+
+    # --------------------------------------------------------
+    # Define HDFS Paths
+    # --------------------------------------------------------
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
-    hdfs_pa =  'hdfs://njbbepapa1.nss.vzwnet.com:9000'
+    hdfs_pa = "hdfs://njbbepapa1.nss.vzwnet.com:9000"
 
-    station_history_path = hdfs_pa + f"/sha_data/StationHistory/"
+    station_history_path = f"{hdfs_pa}/sha_data/StationHistory"
+    device_groups_path = f"{hdfs_pa}/sha_data/DeviceGroups"
+    station_connection_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_connection_hourly"
+    station_score_output_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_score_hourly"
 
-    station_connection_df = spark.read.parquet(f"{hdfs_pa}/sha_data//vz-bhr-athena/reports/station_connection_houry/")
-        
+    
+    # --------------------------------------------------------
+    # Run WiFi Score Hourly Processor
+    # --------------------------------------------------------
+
     with LogTime() as timer:
+        station_connection_df = spark.read.parquet(station_connection_path)
+
         ins = station_score_hourly(
                                 spark,
                                 date_str,
                                 hour_str,
                                 station_connection_df,
-                                output_path = hdfs_pa + f"/sha_data/vz-bhr-athena/reports/bhr_station_score_hourly_report_temp/"
+                                output_path = station_score_output_path
                                 )
 
         ins.run()

@@ -1,0 +1,275 @@
+digraph Station_Score_Hourly {
+  graph [
+    rankdir=TB,
+    splines=spline,
+    bgcolor="white",
+    nodesep="0.50",
+    ranksep="0.70",
+    fontname="Helvetica"
+  ];
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="white",
+    fontname="Helvetica",
+    fontsize=11
+  ];
+  edge [fontname="Helvetica", fontsize=10];
+
+  // ============================================================
+  // Inputs
+  // ============================================================
+  subgraph cluster_inputs {
+    label="Inputs";
+    style="rounded";
+    color="#94a3b8";
+    penwidth=1.5;
+
+    stationConnDF [label="✅ station_connection_df (source_df)\n(sn, station_mac, date, hour, band)\n- p90_rssi, phy_rate, snr, son\n- model, mobility_status, station_name", style="rounded,filled,bold", fillcolor="#fde68a"];
+  }
+
+  // ============================================================
+  // Phase A: Record count + filtering
+  // ============================================================
+  subgraph cluster_filter {
+    label="Phase A: Data Quality Filter";
+    style="rounded";
+    color="#94a3b8";
+    penwidth=1.5;
+
+    add_record_count [label="Add record_count\nCOUNT(*) OVER\n(sn, station_mac, date, hour)"];
+    filter_rc [label="Filter\nrecord_count >= 9"];
+    add_record_count -> filter_rc;
+  }
+
+  // ============================================================
+  // Phase B: Station/hour aggregation (percentiles + max fields)
+  // ============================================================
+  subgraph cluster_pivot {
+    label="Phase B: Aggregate to (sn, station_mac, date, hour)";
+    style="rounded";
+    color="#94a3b8";
+    penwidth=1.5;
+
+    pivoted [label="pivoted_data (groupBy)\nMAX(model, mobility_status, station_name)\nPercentiles by band:\n- RSSI: p90/p50/p95 for 2.4/5/6\n- PHY: p90 for 2.4/5/6"];
+  }
+
+  // ============================================================
+  // Phase C: Convert raw metrics → categorical scores (1–4)
+  // ============================================================
+  subgraph cluster_scores {
+    label="Phase C: Base Scores (Interpretability)";
+    style="rounded,filled";
+    color="#bfdbfe";
+    fillcolor="#eff6ff";
+    penwidth=1.5;
+
+    rssi_scores [label="RSSI band scores (1–4)\n- rssi_score_2_4g\n- rssi_score_5g\n- rssi_score_6g"];
+    phy_scores  [label="PHY band scores (1–4)\n- phy_rate_score_2_4g\n- phy_rate_score_5g\n- phy_rate_score_6g"];
+    pivoted -> rssi_scores;
+    pivoted -> phy_scores;
+  }
+
+  // ============================================================
+  // Phase D: Combine band scores to final_* (min across bands)
+  // ============================================================
+  subgraph cluster_combine {
+    label="Phase D: Combine Band Scores";
+    style="rounded";
+    color="#94a3b8";
+    penwidth=1.5;
+
+    final_rssi [label="final_rssi_score\n= MIN(non-null rssi_score_2_4g/5g/6g)\n(if all null → null)"];
+    final_phy  [label="final_phy_rate_score\n= MIN(non-null phy_rate_score_2_4g/5g/6g)\n(if all null → null)"];
+    base_score [label="base_score\n= MIN(final_rssi_score,\n      final_phy_rate_score)"];
+
+    rssi_scores -> final_rssi;
+    phy_scores  -> final_phy;
+    final_rssi  -> base_score;
+    final_phy   -> base_score;
+  }
+
+  // ============================================================
+  // Phase E: Variation penalty features + variation_score
+  // ============================================================
+  subgraph cluster_variation {
+    label="Phase E: Variation Penalty";
+    style="rounded,filled";
+    color="#fecaca";
+    fillcolor="#fef2f2";
+    penwidth=1.5;
+
+    var_components [label="variation_components (groupBy)\n- snr_range = max(snr) - min(snr)\n- son_count = SUM(son>=1)\n- phy_rate_range_2_4g = max-min (2.4G)\n- phy_rate_range_5g   = max-min (5G)"];
+    var_score [label="variation_score\n= 1 if ANY:\n  snr_range>13 OR\n  son_count>6 OR\n  phy_rate_range_2_4g>30 OR\n  phy_rate_range_5g>300\nelse 0"];
+
+    var_components -> var_score;
+  }
+
+  // ============================================================
+  // Phase F: Join + final station score
+  // ============================================================
+  subgraph cluster_final {
+    label="Final: Station Score (per sn-station-hour)";
+    style="rounded";
+    color="#94a3b8";
+    penwidth=1.5;
+
+    join_bv [label="Join base + variation\nON (sn, station_mac, date, hour)"];
+    score_val [label="score_val\n= base_score - variation_score"];
+    station_bucket [label="station_score (label)\n>=4 Excellent\n=3 Good\n=2 Fair\nelse Poor"];
+    station_num [label="station_score_num\n4 / 3 / 2 / 1"];
+    write_out [label="📊 station_score_hourly output\nwrite parquet by (date, hour)", style="rounded,filled,bold", fillcolor="#bbf7d0"];
+
+    join_bv -> score_val;
+    score_val -> station_bucket;
+    score_val -> station_num;
+    station_bucket -> write_out;
+    station_num -> write_out;
+  }
+
+  // ============================================================
+  // Top-down flow across phases
+  // ============================================================
+  stationConnDF -> add_record_count;
+  filter_rc -> pivoted;
+
+  // variation path uses filtered df too
+  filter_rc -> var_components;
+
+  // merge base+variation
+  base_score -> join_bv;
+  var_score  -> join_bv;
+}
+
+
+digraph Hourly_WiFi_Score {
+    bgcolor=white;
+    nodesep=0.7;
+    rankdir=td;
+    ranksep=0.9;
+    splines=spline;
+
+    subgraph cluster_phase1_leftmost {
+        color="#94a3b8";
+        label="Phase 1 (Left-most): Data Consumption / Heavy Hitters";
+        penwidth=1.5;
+        style=rounded;
+        stationHistory [fillcolor="#e0f2fe", label="📁 StationHistory (raw)\n(rowkey → sn, station_mac)\n- bs, br", shape=box, style=filled];
+        readSH [fillcolor=white, label="Read StationHistory\n(date, hour)", shape=box, style=filled];
+        bytesAgg [fillcolor=white, label="Compute total_bytes per\n(sn, station_mac, date, hour)\nSUM(bs + br)", shape=box, style=filled];
+        bytesFilter [fillcolor=white, label="Filter anomalies\n(total_bytes < ~1.8GB/hr)", shape=box, style=filled];
+        dataConsumption [fillcolor="#bbf7d0", label="data_consumption_df\n(sn, station_mac, date, hour, total_bytes)", shape=box, style="filled,bold"];
+        stationHistory -> readSH;
+        readSH -> bytesAgg;
+        bytesAgg -> bytesFilter;
+        bytesFilter -> dataConsumption;
+    }
+
+    subgraph {
+        rank=min;
+        stationHistory;
+        dataConsumption;
+    }
+
+    subgraph cluster_other_inputs {
+        color="#94a3b8";
+        label="Other Inputs";
+        penwidth=1.5;
+        style=rounded;
+        stationConnDF [fillcolor="#fde68a", label="✅ Station Connection DF (source_df)\n(sn, station_mac, date, hour, band)\n- tx_phy_rate, rssi, snr", shape=box, style="filled,bold"];
+        deviceGroups [fillcolor="#e0f2fe", label="📁 DeviceGroups (raw)\n- group_diag_history_radio_wifi_info\n- airtime_util (2.4G)", shape=box, style=filled];
+    }
+
+    subgraph cluster_speed {
+        color="#fecaca";
+        fillcolor="#fef2f2";
+        label="Pillar 1: Speed Score";
+        penwidth=1.5;
+        style="rounded,filled";
+        spd_prep [fillcolor=white, label="Prepare hourly station data\n- record_count (>=8)\n- tx_phy_rate > 24", shape=box, style=filled];
+        spd_p90 [fillcolor=white, label="Aggregate p90 PHY rate by band\n(sn, station_mac, date, hour)\n- 2.4G / 5G / 6G", shape=box, style=filled];
+        spd_cat [fillcolor=white, label="Map p90 PHY → band scores (1–4)\n- 2.4G / 5G / 6G", shape=box, style=filled];
+        spd_station_avg [fillcolor=white, label="station_base_score_step1_speed\n= AVG(band scores)\n(ignore null)", shape=box, style=filled];
+        spd_join_bytes [fillcolor=white, label="Join with total_bytes\n(data_consumption_df)", shape=box, style=filled];
+        spd_rank [fillcolor=white, label="Rank top 5 and bottom 5 stations\n by total_bytes within (sn, date, hour)", shape=box, style=filled];
+        spd_weight [fillcolor=white, label="Home weighting 80/20\nweighted_avg_base_score_speed", shape=box, style=filled];
+        spd_snr_range [fillcolor=white, label="snr_range = max(snr) - min(snr)\n(filter: snr 0–95)", shape=box, style=filled];
+        spd_var_score [fillcolor=white, label="speed_variation_score\n= 1 if snr_range>13 else 0", shape=box, style=filled];
+        speed_score_num [fillcolor="#bbf7d0", label="speed_score_num\n= weighted_avg_base_score_speed\n  - speed_variation_score", shape=box, style="filled,bold"];
+        spd_prep -> spd_p90;
+        spd_p90 -> spd_cat;
+        spd_cat -> spd_station_avg;
+        spd_station_avg -> spd_join_bytes;
+        spd_join_bytes -> spd_rank;
+        spd_rank -> spd_weight;
+        spd_snr_range -> spd_var_score;
+        spd_weight -> speed_score_num;
+        spd_var_score -> speed_score_num;
+    }
+
+    subgraph cluster_cov {
+        color="#bfdbfe";
+        fillcolor="#eff6ff";
+        label="Pillar 2: Coverage Score";
+        penwidth=1.5;
+        style="rounded,filled";
+        cov_prep [fillcolor=white, label="Prepare hourly station data\n- record_count (>=8)", shape=box, style=filled];
+        cov_p90 [fillcolor=white, label="Aggregate p90 RSSI by band\n(sn, station_mac, date, hour)\n- 2.4G / 5G / 6G", shape=box, style=filled];
+        cov_cat [fillcolor=white, label="Map p90 RSSI → band scores (1–4)\n- 2.4G / 5G / 6G", shape=box, style=filled];
+        cov_station_avg [fillcolor=white, label="station_base_score_step1_coverage\n= AVG(band scores)\n(ignore null)", shape=box, style=filled];
+        cov_join_bytes [fillcolor=white, label="Join with total_bytes\n(data_consumption_df)", shape=box, style=filled];
+        cov_rank [fillcolor=white, label="Rank top 5 and bottom 5 stations \nby total_bytes within (sn, date, hour)", shape=box, style=filled];
+        cov_weight [fillcolor=white, label="Home weighting 80/20\nweighted_avg_base_score_coverage", shape=box, style=filled];
+        cov_var_score [fillcolor=white, label="coverage_variation_score\n(currently 0)", shape=box, style=filled];
+        coverage_score_num [fillcolor="#bbf7d0", label="coverage_score_num\n= weighted_avg_base_score_coverage\n  - coverage_variation_score", shape=box, style="filled,bold"];
+        cov_prep -> cov_p90;
+        cov_p90 -> cov_cat;
+        cov_cat -> cov_station_avg;
+        cov_station_avg -> cov_join_bytes;
+        cov_join_bytes -> cov_rank;
+        cov_rank -> cov_weight;
+        cov_var_score -> coverage_score_num;
+        cov_weight -> coverage_score_num;
+    }
+
+    subgraph cluster_rel {
+        color="#bbf7d0";
+        fillcolor="#f0fdf4";
+        label="Pillar 3: Reliability Score";
+        penwidth=1.5;
+        style="rounded,filled";
+        rel_read [fillcolor=white, label="Read DeviceGroups\n(date, hour)", shape=box, style=filled];
+        rel_explode [fillcolor=white, label="Explode radio wifi info", shape=box, style=filled];
+        rel_filter [fillcolor=white, label="Filter valid 2.4G airtime\n- enable=1\n- not null/empty\n- 0..100", shape=box, style=filled];
+        rel_p90 [fillcolor=white, label="Aggregate p90 airtime (2.4G)\nper (sn, date, hour)", shape=box, style=filled];
+        reliability_score_num [fillcolor="#bbf7d0", label="reliability_score_num (1–4)\n<40→4, 40–50→3, 50–70→2, >70→1", shape=box, style="filled,bold"];
+        rel_read -> rel_explode;
+        rel_explode -> rel_filter;
+        rel_filter -> rel_p90;
+        rel_p90 -> reliability_score_num;
+    }
+
+    subgraph cluster_final {
+        color="#94a3b8";
+        label="Final: Wi-Fi Quality Score (home/hour)";
+        penwidth=1.5;
+        style=rounded;
+        join_all [fillcolor=white, label="Join pillars\nSpeed + Coverage on\n(sn, station_mac, date, hour, model, station_name)\n+ Reliability on (sn, date, hour)", shape=box, style=filled];
+        wifi_avg [fillcolor=white, label="wifi_score_num_unrounded\n= AVG(available pillar scores)\n(ignore nulls via NULLIF count)", shape=box, style=filled];
+        wifi_bucket [fillcolor=white, label="Bucket to final score + category\n>3.5→4 Excellent\n>2.5→3 Good\n>1.5→2 Fair\nelse→1 Poor", shape=box, style=filled];
+        wifi_output [fillcolor="#bbf7d0", label="📊 wifi_score_hourly output\nwrite parquet by (date, hour)", shape=box, style="filled,bold"];
+        join_all -> wifi_avg;
+        wifi_avg -> wifi_bucket;
+        wifi_bucket -> wifi_output;
+    }
+
+    stationConnDF -> spd_prep;
+    stationConnDF -> spd_snr_range;
+    stationConnDF -> cov_prep;
+    dataConsumption -> spd_join_bytes;
+    dataConsumption -> cov_join_bytes;
+    deviceGroups -> rel_read;
+    speed_score_num -> join_all;
+    coverage_score_num -> join_all;
+    reliability_score_num -> join_all;
+}
