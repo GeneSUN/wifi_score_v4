@@ -1,0 +1,8 @@
+:: loading settings :: url = jar:file:/usr/apps/vmas/spark/jars/ivy-2.5.1.jar!/org/apache/ivy/core/settings/ivysettings.xml
+[INFO] Using passed-in date/hour: 20260323 18
+[INFO] Deleting existing path: hdfs://njbbepapa1.nss.vzwnet.com:9000/sha_data/hourlyScore_include_pac/station_connection_hourly
+[OK] Path found: hdfs://njbbepapa1.nss.vzwnet.com:9000/sha_data/StationHistory/date=20260323/hour=18
+Attempting to read pre-computed stationarity data...
+Successfully read existing stationary data.
+Time Elapsed: 11m 48.01s
+[DONE] StationConnectionProcessor completed successfully.

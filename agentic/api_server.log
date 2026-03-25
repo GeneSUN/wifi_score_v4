@@ -1,0 +1,50 @@
+INFO:     Started server process [3201310]
+INFO:     Waiting for application startup.
+2026-03-24 23:42:20,921 INFO === API startup: warming up Spark and Anthropic ===
+2026-03-24 23:42:20,921 INFO Initialising SparkSession (picking up spark-submit config) ...
+2026-03-24 23:42:22,190 INFO SparkSession ready.
+2026-03-24 23:42:22,227 INFO Anthropic client ready.
+2026-03-24 23:42:22,227 INFO === All resources ready. Accepting requests. ===
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:42578 - "OPTIONS /ask HTTP/1.1" 200 OK
+2026-03-24 23:42:48,551 INFO POST /ask  sn=AA120200135  date=2026-03-25  q=How is the WiFi score calculated?
+[1/7] Building request ...
+[2/7] Loading device metrics from HDFS parquet ...
+2026-03-24 23:42:50,201 ERROR Unexpected pipeline error
+Traceback (most recent call last):
+  File "/usr/apps/vmas/scripts/ZS/agentic/api_server.py", line 206, in ask
+    result = await run_pipeline_async(body.sn, body.question, body.target_date)
+  File "/usr/apps/vmas/scripts/ZS/agentic/api_server.py", line 179, in run_pipeline_async
+    return await loop.run_in_executor(
+  File "/usr/apps/vmas/anaconda3/lib/python3.9/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/usr/apps/vmas/scripts/ZS/agentic/api_server.py", line 181, in <lambda>
+    lambda: run_pipeline(
+  File "/usr/apps/vmas/scripts/ZS/agentic/wifi_score_pipeline.py", line 533, in run_pipeline
+    metrics = load_device_metrics(spark, request)
+  File "/usr/apps/vmas/scripts/ZS/agentic/wifi_score_pipeline.py", line 162, in load_device_metrics
+    spark.read.parquet(parquet_path)
+  File "/usr/apps/vmas/spark/python/lib/pyspark.zip/pyspark/sql/readwriter.py", line 531, in parquet
+    return self._df(self._jreader.parquet(_to_seq(self._spark._sc, paths)))
+  File "/usr/apps/vmas/spark/python/lib/py4j-0.10.9.7-src.zip/py4j/java_gateway.py", line 1322, in __call__
+    return_value = get_return_value(
+  File "/usr/apps/vmas/spark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 175, in deco
+    raise converted from None
+pyspark.errors.exceptions.captured.AnalysisException: [PATH_NOT_FOUND] Path does not exist: hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/wifi_score_v4/wifiScore_location/2026-03-25.
+INFO:     127.0.0.1:42578 - "POST /ask HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:42580 - "OPTIONS /ask HTTP/1.1" 200 OK
+2026-03-24 23:42:57,187 INFO POST /ask  sn=AA120200135  date=2026-03-24  q=How is the WiFi score calculated?
+[1/7] Building request ...
+[2/7] Loading device metrics from HDFS parquet ...
+[3/7] Loading KPI context ...
+[4/7] Classifying question type ...
+2026-03-24 23:43:24,200 INFO HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+      -> Detected: Score calculation
+[5/7] Assembling prompt ...
+[6/7] Calling Claude ...
+2026-03-24 23:43:33,161 INFO HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+[7/7] Building final response ...
+Pipeline complete.
+
+INFO:     127.0.0.1:42580 - "POST /ask HTTP/1.1" 200 OK

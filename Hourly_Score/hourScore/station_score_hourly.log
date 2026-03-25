@@ -1,0 +1,3 @@
+:: loading settings :: url = jar:file:/usr/apps/vmas/spark/jars/ivy-2.5.1.jar!/org/apache/ivy/core/settings/ivysettings.xml
+[INFO] Using passed-in date/hour: 20260323 18
+Time Elapsed: 5m 4.22s
