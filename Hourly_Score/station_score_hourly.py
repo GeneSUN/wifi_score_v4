@@ -88,6 +88,7 @@ class station_score_hourly:
                 F.max("model").alias("model"),
                 F.max("mobility_status").alias("mobility_status"),
                 F.max("station_name").alias("station_name"),
+                F.max("mode").alias("mode"),
 
                 # --- RSSI Percentiles ---
                 F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("p90_rssi").cast("double")), 0.90).alias("p90_rssi_2_4g"),
@@ -139,26 +140,57 @@ class station_score_hourly:
                 .when(F.col("p90_rssi_6g").between(-82, -73), 2)
                 .when(F.col("p90_rssi_6g") < -82, 1),
             )
-            # --- PHY Rate Scores ---
+            # --- PHY Rate Scores (TABLE 1 override, then TABLE 2 fallback) ---
             .withColumn(
                 "phy_rate_score_2_4g",
-                F.when(F.col("p90_phy_rate_2_4g") >= 54, 4)
-                .when(F.col("p90_phy_rate_2_4g").between(1, 54), 4)
-                .when(F.col("p90_phy_rate_2_4g") < 1, 1),
+                F.when(
+                    ((F.col("mode") == 0) & (F.col("p90_phy_rate_2_4g") <= 2))
+                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_2_4g") <= 11))
+                    | ((F.col("mode") == 3) & (F.col("p90_phy_rate_2_4g") <= 24))
+                    | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_2_4g") <= 12))
+                    | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_2_4g") <= 6))
+                    | (F.col("mode").between(11, 21) & (F.col("p90_phy_rate_2_4g") <= 6))
+                    | (F.col("mode").between(22, 29) & (F.col("p90_phy_rate_2_4g") <= 6)),
+                    4,
+                )
+                .when(F.col("p90_phy_rate_2_4g") > 144, 4)
+                .when(F.col("p90_phy_rate_2_4g").between(72, 144), 3)
+                .when(F.col("p90_phy_rate_2_4g").between(12, 71), 2)
+                .when(F.col("p90_phy_rate_2_4g") < 12, 1),
             )
             .withColumn(
-                "phy_rate_score_5g", # Updated thresholds to 400/200/100
-                F.when(F.col("p90_phy_rate_5g") >= 400, 4)
-                .when(F.col("p90_phy_rate_5g").between(200, 399), 3)
-                .when(F.col("p90_phy_rate_5g").between(100, 199), 2)
-                .when(F.col("p90_phy_rate_5g") < 100, 1),
+                "phy_rate_score_5g",
+                F.when(
+                    ((F.col("mode") == 0) & (F.col("p90_phy_rate_5g") <= 2))
+                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_5g") <= 11))
+                    | ((F.col("mode") == 3) & (F.col("p90_phy_rate_5g") <= 24))
+                    | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_5g") <= 12))
+                    | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_5g") <= 6))
+                    | (F.col("mode").between(11, 21) & (F.col("p90_phy_rate_5g") <= 6))
+                    | (F.col("mode").between(22, 29) & (F.col("p90_phy_rate_5g") <= 6)),
+                    4,
+                )
+                .when(F.col("p90_phy_rate_5g") > 600, 4)
+                .when(F.col("p90_phy_rate_5g").between(300, 600), 3)
+                .when(F.col("p90_phy_rate_5g").between(86, 299), 2)
+                .when(F.col("p90_phy_rate_5g") < 86, 1),
             )
             .withColumn(
-                "phy_rate_score_6g", # Added 6G PHY Rate logic
-                F.when(F.col("p90_phy_rate_6g") >= 1200, 4)
-                .when(F.col("p90_phy_rate_6g").between(600, 1199), 3)
-                .when(F.col("p90_phy_rate_6g").between(200, 599), 2)
-                .when(F.col("p90_phy_rate_6g") < 200, 1),
+                "phy_rate_score_6g",
+                F.when(
+                    ((F.col("mode") == 0) & (F.col("p90_phy_rate_6g") <= 2))
+                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_6g") <= 11))
+                    | ((F.col("mode") == 3) & (F.col("p90_phy_rate_6g") <= 24))
+                    | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_6g") <= 12))
+                    | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_6g") <= 6))
+                    | (F.col("mode").between(11, 21) & (F.col("p90_phy_rate_6g") <= 6))
+                    | (F.col("mode").between(22, 29) & (F.col("p90_phy_rate_6g") <= 6)),
+                    4,
+                )
+                .when(F.col("p90_phy_rate_6g") > 1200, 4)
+                .when(F.col("p90_phy_rate_6g").between(600, 1200), 3)
+                .when(F.col("p90_phy_rate_6g").between(286, 599), 2)
+                .when(F.col("p90_phy_rate_6g") < 286, 1),
             )
         )
 
