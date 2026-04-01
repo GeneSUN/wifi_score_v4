@@ -142,10 +142,9 @@ class station_score_hourly:
             # --- PHY Rate Scores ---
             .withColumn(
                 "phy_rate_score_2_4g",
-                F.when(F.col("p90_phy_rate_2_4g") >= 50, 4)
-                .when(F.col("p90_phy_rate_2_4g").between(20, 49), 3)
-                .when(F.col("p90_phy_rate_2_4g").between(10, 19), 2)
-                .when(F.col("p90_phy_rate_2_4g") < 10, 1),
+                F.when(F.col("p90_phy_rate_2_4g") >= 54, 4)
+                .when(F.col("p90_phy_rate_2_4g").between(1, 54), 4)
+                .when(F.col("p90_phy_rate_2_4g") < 1, 1),
             )
             .withColumn(
                 "phy_rate_score_5g", # Updated thresholds to 400/200/100
@@ -162,6 +161,16 @@ class station_score_hourly:
                 .when(F.col("p90_phy_rate_6g") < 200, 1),
             )
         )
+
+        """
+                    .withColumn(
+                "phy_rate_score_2_4g",
+                F.when(F.col("p90_phy_rate_2_4g") >= 50, 4)
+                .when(F.col("p90_phy_rate_2_4g").between(20, 49), 3)
+                .when(F.col("p90_phy_rate_2_4g").between(10, 19), 2)
+                .when(F.col("p90_phy_rate_2_4g") < 10, 1),
+            )
+        """
 
         BIG = 10**9  # bigger than any possible score
 
@@ -342,8 +351,7 @@ if __name__ == "__main__":
     hdfs_pd = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/"
     hdfs_pa = "hdfs://njbbepapa1.nss.vzwnet.com:9000"
 
-    station_history_path = f"{hdfs_pa}/sha_data/StationHistory"
-    device_groups_path = f"{hdfs_pa}/sha_data/DeviceGroups"
+
     station_connection_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_connection_hourly"
     station_score_output_path = f"{hdfs_pa}/sha_data/hourlyScore_include_pac/station_score_hourly"
 
