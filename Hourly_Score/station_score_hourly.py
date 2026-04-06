@@ -354,6 +354,27 @@ class station_score_hourly:
             )
         )
         '''
+
+        any_rssi_sentinel = (
+            (F.coalesce(F.col("p90_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p90_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p90_rssi_6g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_6g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_6g_base"), F.lit(0)) == -100)
+        )
+
+        # 2. Update PHY sentinel with the correct "_base" suffix
+        any_phy_sentinel = (
+            (F.coalesce(F.col("p90_phy_rate_2_4g_base"), F.lit(-1)) == 0)
+            | (F.coalesce(F.col("p90_phy_rate_5g_base"), F.lit(-1)) == 0)
+            | (F.coalesce(F.col("p90_phy_rate_6g_base"), F.lit(-1)) == 0)
+        )
+        output_df = output_df.filter(~(any_rssi_sentinel & any_phy_sentinel))
+
         output_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
 
 if __name__ == "__main__":
