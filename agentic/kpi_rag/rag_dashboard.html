@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi KPI Knowledge Base</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #f5f4f0;
+    --surface: #ffffff;
+    --border:  #e2e0d8;
+    --text:    #1a1a18;
+    --muted:   #6b6a64;
+    --accent:  #1d6fa5;
+    --accent2: #0f5680;
+    --tag-bg:  #e8f2fb;
+    --tag-txt: #0f5680;
+    --radius:  10px;
+    --shadow:  0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:      #181816;
+      --surface: #242422;
+      --border:  #38382e;
+      --text:    #e8e6dc;
+      --muted:   #9a9890;
+      --accent:  #5aaedc;
+      --accent2: #3b9acc;
+      --tag-bg:  #1a2f3f;
+      --tag-txt: #7bcae8;
+    }
+  }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 16px;
+    line-height: 1.6;
+  }
+
+  .page { max-width: 820px; margin: 0 auto; }
+
+  /* ── header ──────────────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  header .logo {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 18px; font-weight: 700; flex-shrink: 0;
+  }
+  header h1 { font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
+  header p  { font-size: 13px; color: var(--muted); }
+
+  /* ── card ────────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  .card-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  /* ── suggested questions ─────────────────────────────────────────────── */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .chip {
+    background: var(--tag-bg);
+    color: var(--tag-txt);
+    border: none;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity .15s;
+    font-family: inherit;
+  }
+  .chip:hover { opacity: .75; }
+
+  /* ── input area ──────────────────────────────────────────────────────── */
+  .input-row {
+    display: flex;
+    gap: 8px;
+  }
+  #question-input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
+    resize: none;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #question-input:focus { border-color: var(--accent); }
+  #ask-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: background .15s;
+  }
+  #ask-btn:hover { background: var(--accent2); }
+  #ask-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── status bar ──────────────────────────────────────────────────────── */
+  #status {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+    min-height: 18px;
+  }
+  #status.error { color: #b53030; }
+
+  /* ── answer card ─────────────────────────────────────────────────────── */
+  #answer-card { display: none; }
+
+  .answer-question {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+    font-style: italic;
+  }
+
+  .answer-text {
+    font-size: 15px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+
+  /* ── sources ─────────────────────────────────────────────────────────── */
+  .sources-toggle {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 16px;
+    font-family: inherit;
+  }
+  .sources-toggle:hover { text-decoration: underline; }
+
+  #sources-list {
+    display: none;
+    margin-top: 10px;
+    display: none;
+  }
+  #sources-list.open { display: block; }
+
+  .source-item {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .source-meta {
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+
+  /* ── history ─────────────────────────────────────────────────────────── */
+  .history-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { color: var(--accent); }
+  .history-item .h-q { font-weight: 500; }
+  .history-item .h-a { color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #history-card { display: none; }
+
+  /* ── spinner ─────────────────────────────────────────────────────────── */
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo">K</div>
+    <div>
+      <h1>WiFi KPI Knowledge Base</h1>
+      <p>Ask plain-English questions about WiFi scores, metrics, and calculations</p>
+    </div>
+  </header>
+
+  <!-- Query card -->
+  <div class="card">
+    <div class="card-label">Ask a question</div>
+
+    <div class="chips" id="chips">
+      <button class="chip">How does reboot affect WiFi score?</button>
+      <button class="chip">What is reliabilityScore?</button>
+      <button class="chip">How is coverageScore calculated?</button>
+      <button class="chip">What does phyrate_numeric mean?</button>
+      <button class="chip">How is wifiScore computed from sub-scores?</button>
+      <button class="chip">What thresholds define Excellent vs Poor?</button>
+    </div>
+
+    <div class="input-row">
+      <textarea
+        id="question-input"
+        rows="2"
+        placeholder="e.g. How does band steering affect the reliability score?"
+      ></textarea>
+      <button id="ask-btn" onclick="submitQuestion()">Ask</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- Answer card -->
+  <div class="card" id="answer-card">
+    <div class="card-label">Answer</div>
+    <div class="answer-question" id="answer-question"></div>
+    <div class="answer-text" id="answer-text"></div>
+    <button class="sources-toggle" id="sources-toggle" onclick="toggleSources()">
+      Show sources
+    </button>
+    <div id="sources-list"></div>
+  </div>
+
+  <!-- History card -->
+  <div class="card" id="history-card">
+    <div class="card-label">Recent queries</div>
+    <div id="history-list"></div>
+  </div>
+
+</div>
+
+<script>
+  const API_BASE = 'http://localhost:8001';
+  const history  = [];
+
+  // Wire up quick-pick chips
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById('question-input').value = chip.textContent.trim();
+      submitQuestion();
+    });
+  });
+
+  // Submit on Enter (Shift+Enter for newline)
+  document.getElementById('question-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitQuestion();
+    }
+  });
+
+  async function submitQuestion() {
+    const input    = document.getElementById('question-input');
+    const question = input.value.trim();
+    if (!question) return;
+
+    const btn    = document.getElementById('ask-btn');
+    const status = document.getElementById('status');
+
+    btn.disabled = true;
+    status.className = '';
+    status.innerHTML = '<span class="spinner"></span>Querying RAG pipeline…';
+
+    document.getElementById('answer-card').style.display = 'none';
+    document.getElementById('sources-list').classList.remove('open');
+
+    try {
+      const resp = await fetch(`${API_BASE}/ask`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ question }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      renderAnswer(data);
+      addHistory(data);
+      status.textContent = '';
+
+    } catch (err) {
+      status.className   = 'error';
+      status.textContent = `Error: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderAnswer(data) {
+    document.getElementById('answer-question').textContent = `"${data.question}"`;
+    document.getElementById('answer-text').textContent     = data.answer;
+
+    // Sources
+    const sourcesList = document.getElementById('sources-list');
+    sourcesList.innerHTML = '';
+    (data.sources || []).forEach((s, i) => {
+      const meta = Object.entries(s.metadata || {})
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' · ');
+
+      const div = document.createElement('div');
+      div.className = 'source-item';
+      div.innerHTML = `
+        <div class="source-meta">[${i + 1}] ${meta || 'WiFi KPI Document'}</div>
+        ${escapeHtml(s.content)}
+      `;
+      sourcesList.appendChild(div);
+    });
+
+    const toggle = document.getElementById('sources-toggle');
+    toggle.textContent = `Show sources (${data.sources.length})`;
+
+    document.getElementById('answer-card').style.display = 'block';
+    document.getElementById('answer-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function toggleSources() {
+    const list   = document.getElementById('sources-list');
+    const toggle = document.getElementById('sources-toggle');
+    const open   = list.classList.toggle('open');
+    const count  = list.children.length;
+    toggle.textContent = open ? `Hide sources` : `Show sources (${count})`;
+  }
+
+  function addHistory(data) {
+    history.unshift(data);
+    if (history.length > 10) history.pop();
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const card = document.getElementById('history-card');
+    const list = document.getElementById('history-list');
+    list.innerHTML = '';
+    card.style.display = history.length ? 'block' : 'none';
+
+    history.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.innerHTML = `
+        <div class="h-q">${escapeHtml(item.question)}</div>
+        <div class="h-a">${escapeHtml(item.answer)}</div>
+      `;
+      div.addEventListener('click', () => renderAnswer(item));
+      list.appendChild(div);
+    });
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>
