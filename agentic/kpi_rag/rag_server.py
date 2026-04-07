@@ -5,7 +5,7 @@
   Wraps rag_pipeline.py in a FastAPI HTTP server.
 
   HOW TO RUN:
-  -----------
+  ----------- 
       pip install fastapi uvicorn
       python rag_server.py
 
