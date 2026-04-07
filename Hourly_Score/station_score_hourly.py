@@ -88,7 +88,7 @@ class station_score_hourly:
                 F.max("model").alias("model"),
                 F.max("mobility_status").alias("mobility_status"),
                 F.max("station_name").alias("station_name"),
-                F.max("mode").alias("mode"),
+                F.max(F.col("mode").cast("integer")).alias("mode"),
 
                 # --- RSSI Percentiles ---
                 F.percentile_approx(F.when(F.col("band").like("2.4G%"), F.col("p90_rssi").cast("double")), 0.90).alias("p90_rssi_2_4g"),
@@ -145,7 +145,7 @@ class station_score_hourly:
                 "phy_rate_score_2_4g",
                 F.when(
                     ((F.col("mode") == 0) & (F.col("p90_phy_rate_2_4g") <= 2))
-                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_2_4g") <= 11))
+                    | (F.col("mode").between(1, 2) & (F.col("p90_phy_rate_2_4g") <= 11))
                     | ((F.col("mode") == 3) & (F.col("p90_phy_rate_2_4g") <= 24))
                     | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_2_4g") <= 12))
                     | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_2_4g") <= 6))
@@ -162,7 +162,7 @@ class station_score_hourly:
                 "phy_rate_score_5g",
                 F.when(
                     ((F.col("mode") == 0) & (F.col("p90_phy_rate_5g") <= 2))
-                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_5g") <= 11))
+                    | (F.col("mode").between(1, 2) & (F.col("p90_phy_rate_5g") <= 11))
                     | ((F.col("mode") == 3) & (F.col("p90_phy_rate_5g") <= 24))
                     | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_5g") <= 12))
                     | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_5g") <= 6))
@@ -179,7 +179,7 @@ class station_score_hourly:
                 "phy_rate_score_6g",
                 F.when(
                     ((F.col("mode") == 0) & (F.col("p90_phy_rate_6g") <= 2))
-                    | (F.col("mode").isin(1, 2) & (F.col("p90_phy_rate_6g") <= 11))
+                    | (F.col("mode").between(1, 2) & (F.col("p90_phy_rate_6g") <= 11))
                     | ((F.col("mode") == 3) & (F.col("p90_phy_rate_6g") <= 24))
                     | (F.col("mode").between(4, 7) & (F.col("p90_phy_rate_6g") <= 12))
                     | (F.col("mode").between(8, 10) & (F.col("p90_phy_rate_6g") <= 6))
@@ -354,6 +354,27 @@ class station_score_hourly:
             )
         )
         '''
+
+        any_rssi_sentinel = (
+            (F.coalesce(F.col("p90_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p90_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p90_rssi_6g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p50_rssi_6g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_2_4g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_5g_base"), F.lit(0)) == -100)
+            | (F.coalesce(F.col("p95_rssi_6g_base"), F.lit(0)) == -100)
+        )
+
+        # 2. Update PHY sentinel with the correct "_base" suffix
+        any_phy_sentinel = (
+            (F.coalesce(F.col("p90_phy_rate_2_4g_base"), F.lit(-1)) == 0)
+            | (F.coalesce(F.col("p90_phy_rate_5g_base"), F.lit(-1)) == 0)
+            | (F.coalesce(F.col("p90_phy_rate_6g_base"), F.lit(-1)) == 0)
+        )
+        output_df = output_df.filter(~(any_rssi_sentinel & any_phy_sentinel))
+
         output_df.write.mode("overwrite").parquet(f"{self.output_path}/date={self.date_str}/hour={self.hour_str}")
 
 if __name__ == "__main__":
