@@ -17,14 +17,14 @@
 
   Stages
   ------
-  1.  build_request()         → validate & normalise the raw user input
-  2.  load_device_metrics()   → read parquet row(s) for this device/date
-  3.  load_kpi_context()      → load the KPI document (PDF text or embedded)
-  4.  classify_question()     → ask Claude what kind of question this is
-  5.  build_prompt()          → assemble a stage-specific system+user prompt
-  6.  call_claude()           → single Anthropic API call, returns raw text
-  7.  build_response()        → wrap everything into the final output schema
-  8.  run_pipeline()          → orchestrates 1-7 end-to-end
+  1.  build_request()           → validate & normalise the raw user input
+  2.  load_device_metrics()     → read parquet row(s) for this device/date
+  3.  retrieve_kpi_context()    → RAG: retrieve relevant KPI chunks from Redis
+  4.  classify_question()       → ask Claude what kind of question this is
+  5.  build_prompt()            → assemble a stage-specific system+user prompt
+  6.  call_claude()             → single Anthropic API call, returns raw text
+  7.  build_response()          → wrap everything into the final output schema
+  8.  run_pipeline()            → orchestrates 1-7 end-to-end
 
 ================================================================================
 """
@@ -41,6 +41,9 @@ import anthropic          # pip install anthropic
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
+# ── RAG retriever ─────────────────────────────────────────────────────────────
+from kpi_rag.rag_pipeline import build_retriever, OPENAI_API_KEY as RAG_OPENAI_API_KEY
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  0.  CONSTANTS & CONFIG
@@ -50,41 +53,19 @@ ANTHROPIC_API_KEY = 'sk-ant-api03-LsHpesiRfAr7QeguJuRQ--sd0tkRPBb0tfI_kR-vc1oZpQ
 HDFS_ROOT   = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000"
 PARQUET_DIR = "/user/ZheS/wifi_score_v4/wifiScore_location"
 
-# KPI document embedded as plain text so the pipeline works without a live PDF.
-# Extension point: replace load_kpi_context() body with a real PDF reader.
-KPI_DOCUMENT_TEXT = """
-WiFi Score v4 – KPI Reference (embedded excerpt)
--------------------------------------------------
-SCORE DIMENSIONS
-  * reliabilityScore  - composite of reboot stability, IP-change frequency,
-                        and band-steering success.
-  * speedScore        - derived from phyrate (physical link rate) and RSSI
-                        (signal strength).  Higher phyrate & RSSI -> higher score.
-  * coverageScore     - reflects RSSI levels and airtime utilisation across
-                        connected devices.
-  * wifiScore         - weighted average of reliability, speed, and coverage.
-
-KEY METRICS
-  ip_change_category          : how often the device WAN IP changes
-                                (Excellent = rarely / never).
-  band_success_count          : number of successful band-steering events.
-  steer_start_count           : how many times band-steering was attempted.
-  steer_start_perHome_count   : steering attempts normalised per home.
-  mdm_resets_count            : modem resets initiated by MDM system.
-  user_reboot_count           : reboots triggered by the end-user.
-  total_reboots_count         : sum of all reboots.
-  rssi_numeric                : signal strength (higher is better;
-                                > 3 = Excellent, 2-3 = Good, < 2 = Poor).
-  phyrate_numeric             : PHY data-rate in normalised units
-                                (Excellent >= 3, Good 2-3, Fair 1-2, Poor < 1).
-  no_poor_airtime             : count of time-windows without poor airtime.
-  no_sudden_drop              : count of sessions without a sudden RSSI drop.
-
-CATEGORY THRESHOLDS (numeric encoding)
-  4 = Excellent | 3 = Good | 2 = Fair | 1 = Poor
-"""
-
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
+
+# ── RAG retriever singleton ───────────────────────────────────────────────────
+# Initialized once on first use; reused for every subsequent pipeline call.
+_rag_retriever = None
+
+def _get_rag_retriever():
+    global _rag_retriever
+    if _rag_retriever is None:
+        print("Initialising RAG retriever (connecting to Redis) ...")
+        _rag_retriever = build_retriever(openai_api_key=RAG_OPENAI_API_KEY)
+        print("RAG retriever ready.")
+    return _rag_retriever
 
 # Six supported question types used as literals throughout the pipeline.
 QUESTION_TYPES = [
@@ -177,18 +158,28 @@ def load_device_metrics(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STAGE 3 - load_kpi_context
-#  Returns the KPI reference text used in every prompt.
+#  STAGE 3 - retrieve_kpi_context
+#  Query the RAG vector store for KPI chunks relevant to this question.
 # ══════════════════════════════════════════════════════════════════════════════
 
-def load_kpi_context() -> str:
+def retrieve_kpi_context(retriever: Any, question: str) -> str:
     """
-    Returns the KPI documentation as a plain string.
+    Runs a similarity search against the Redis vector store and returns the
+    top-k retrieved KPI document chunks formatted as a single string.
 
-    Extension point: swap the body of this function with a real PDF reader
-    (e.g. PyMuPDF / pdfminer) that reads from HDFS or a local path.
+    Parameters
+    ----------
+    retriever : LangChain retriever returned by kpi_rag.rag_pipeline.build_retriever()
+    question  : The customer's question (used as the retrieval query).
+
+    Returns
+    -------
+    Concatenated text of the retrieved chunks, ready to inject into a prompt.
     """
-    return KPI_DOCUMENT_TEXT.strip()
+    docs = retriever.invoke(question)
+    if not docs:
+        return "(No relevant KPI documentation retrieved.)"
+    return "\n\n---\n\n".join(doc.page_content for doc in docs)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -352,9 +343,9 @@ def build_prompt(
         Always ground your answer in the actual metric values provided.
         Never invent values or reference metrics not present in the data.
 
-        === KPI DOCUMENTATION ===
+        === KPI DOCUMENTATION (RAG-retrieved) ===
         {kpi_context}
-        =========================
+        ==========================================
     """).strip()
 
     user_prompt = textwrap.dedent(f"""
@@ -532,9 +523,9 @@ def run_pipeline(
     print("[2/7] Loading device metrics from HDFS parquet ...")
     metrics = load_device_metrics(spark, request)
 
-    # 3.  Load KPI documentation
-    print("[3/7] Loading KPI context ...")
-    kpi_context = load_kpi_context()
+    # 3.  Retrieve relevant KPI chunks from RAG
+    print("[3/7] Retrieving KPI context from RAG ...")
+    kpi_context = retrieve_kpi_context(_get_rag_retriever(), request["question"])
 
     # 4.  Classify the question
     print("[4/7] Classifying question type ...")
@@ -571,7 +562,7 @@ if __name__ == "__main__":
                             question    = "Why is my speed score lower than my reliability score?",
                             target_date = "2026-03-20",
                             spark = spark,
-                            anthropic_client = anthropic.Anthropic(api_key = ANTHROPIC_API_KEY)
+                            anthropic_client = anthropic.Anthropic(api_key = ANTHROPIC_API_KEY),
                             )
     # 2. Extract variables for easy reading
     sn = result_data['request']['sn']

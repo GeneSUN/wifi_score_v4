@@ -1,0 +1,400 @@
+{
+  "metadata": {
+    "description": "RAG evaluation test dataset for WiFi KPI document",
+    "source_document": "wifiScore_KPI_Document_cleaned_for_rag.md",
+    "version": "1.0",
+    "created": "2026-04-06",
+    "categories": [
+      "architecture",
+      "reliability",
+      "coverage",
+      "speed",
+      "aggregation"
+    ]
+  },
+  "test_cases": [
+    {
+      "id": "arch_001",
+      "category": "architecture",
+      "difficulty": "easy",
+      "question": "How is the final WiFi score determined from the three bucket scores?",
+      "expected_answer": "The WiFi score is the worst of three bucket scores: Coverage, Speed, and Reliability. For example, if Coverage=Good, Speed=Fair, Reliability=Poor, the final WiFi score is Poor.",
+      "expected_sections": [
+        "Wi-Fi Score Architecture",
+        "Aggregation"
+      ]
+    },
+    {
+      "id": "arch_002",
+      "category": "architecture",
+      "difficulty": "easy",
+      "question": "What KPIs make up the Coverage bucket score?",
+      "expected_answer": "The Coverage bucket score is determined solely by RSSI (signal strength).",
+      "expected_sections": [
+        "Wi-Fi Score Architecture"
+      ]
+    },
+    {
+      "id": "arch_003",
+      "category": "architecture",
+      "difficulty": "medium",
+      "question": "What KPIs make up the Speed bucket score and what are their weights?",
+      "expected_answer": "Speed is composed of two KPIs: Phy Rate (weight 1/2) and Airtime Utilization (weight 1/2).",
+      "expected_sections": [
+        "Wi-Fi Score Architecture"
+      ]
+    },
+    {
+      "id": "arch_004",
+      "category": "architecture",
+      "difficulty": "medium",
+      "question": "What KPIs make up the Reliability bucket score and what are their weights?",
+      "expected_answer": "Reliability is composed of 7 KPIs, each with weight 1/7: customer_reboot, total reboot, modem_reset, Sudden Drop of Connection, Steer_Start, Steer_Start_perHomeSTA, and No. of IP changes.",
+      "expected_sections": [
+        "Wi-Fi Score Architecture"
+      ]
+    },
+    {
+      "id": "reliability_001",
+      "category": "reliability",
+      "difficulty": "easy",
+      "question": "How many reboots per home in 30 days results in a 'Poor' reboot category?",
+      "expected_answer": "5 or more reboots per home within a 30-day rolling window results in a 'Poor' reboot category.",
+      "expected_sections": [
+        "Reboot Calculation Methodology"
+      ]
+    },
+    {
+      "id": "reliability_002",
+      "category": "reliability",
+      "difficulty": "easy",
+      "question": "What are the thresholds for modem resets per home to be classified as 'Excellent'?",
+      "expected_answer": "1 or more modem resets (>= 1) per home in a 30-day rolling window results in an 'Excellent' category for modem resets.",
+      "expected_sections": [
+        "Reboot Calculation Methodology"
+      ]
+    },
+    {
+      "id": "reliability_003",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "What is the reboot category for a home that had 3 customer-initiated reboots in 30 days?",
+      "expected_answer": "3 or more customer-initiated reboots results in a 'Poor' category for customer reboots.",
+      "expected_sections": [
+        "Reboot Calculation Methodology"
+      ]
+    },
+    {
+      "id": "reliability_004",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "What is the data source used to detect modem resets?",
+      "expected_answer": "Modem resets are detected using the `owl_data_modem_event` data source.",
+      "expected_sections": [
+        "Reboot of Device"
+      ]
+    },
+    {
+      "id": "reliability_005",
+      "category": "reliability",
+      "difficulty": "easy",
+      "question": "What is the threshold for IP changes without reboot to be classified as 'Poor'?",
+      "expected_answer": "More than 6 IP changes without a reboot is classified as 'Poor'.",
+      "expected_sections": [
+        "IP Changes Categorization"
+      ]
+    },
+    {
+      "id": "reliability_006",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "How does having a reboot affect the IP change thresholds?",
+      "expected_answer": "Homes with reboots use higher thresholds. Without reboot: Poor is >6 changes. With reboot: Poor is >16 changes. The document uses different thresholds because frequent IP changes without reboots can signal network issues.",
+      "expected_sections": [
+        "IP Changes Categorization"
+      ]
+    },
+    {
+      "id": "reliability_007",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "What data field is used to track IP changes?",
+      "expected_answer": "IP changes are tracked using `Owl_Data_fwa_cpe_data.ipv4_ip`, by comparing the current IP to the previous IP (`prev_ip4`) and flagging changes with `ip_changes_flag`.",
+      "expected_sections": [
+        "IP Changes Categorization"
+      ]
+    },
+    {
+      "id": "reliability_008",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "What action code in the steering data represents a 'Start' event?",
+      "expected_answer": "Action code '2' represents a 'Start' event in the steering data.",
+      "expected_sections": [
+        "SON/Per Client Steering",
+        "Event field dictionary"
+      ]
+    },
+    {
+      "id": "reliability_009",
+      "category": "reliability",
+      "difficulty": "hard",
+      "question": "What are the thresholds for 'Per client steer start' to be classified as 'Poor'?",
+      "expected_answer": "More than 60 per-client steer starts results in a 'Poor' classification for SON/Per Client Steering.",
+      "expected_sections": [
+        "SON/Per Client Steering"
+      ]
+    },
+    {
+      "id": "reliability_010",
+      "category": "reliability",
+      "difficulty": "easy",
+      "question": "What is the time window used for the SON/steering KPI calculation?",
+      "expected_answer": "The SON/steering KPI uses a 1-day time window.",
+      "expected_sections": [
+        "SON/Per Client Steering"
+      ]
+    },
+    {
+      "id": "reliability_011",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "What STA_type filter is applied when calculating per-client steering?",
+      "expected_answer": "Only records where STA_type == '2' (BTMi type stations) are included in the per-client steering calculation.",
+      "expected_sections": [
+        "SON/Per Client Steering"
+      ]
+    },
+    {
+      "id": "reliability_012",
+      "category": "reliability",
+      "difficulty": "easy",
+      "question": "What defines a 'sudden drop of connection'?",
+      "expected_answer": "A sudden drop of connection is defined as an event where the total number of connected clients disappears from the previous sample.",
+      "expected_sections": [
+        "Sudden drop of connection"
+      ]
+    },
+    {
+      "id": "reliability_013",
+      "category": "reliability",
+      "difficulty": "medium",
+      "question": "How many sudden drops of stationary clients result in a 'Fair' category?",
+      "expected_answer": "Exactly 1 sudden drop of a stationary client results in a 'Fair' category.",
+      "expected_sections": [
+        "Sudden drop of connection"
+      ]
+    },
+    {
+      "id": "coverage_001",
+      "category": "coverage",
+      "difficulty": "easy",
+      "question": "What is the RSSI threshold for 'Poor' signal strength on the 2.4 GHz band?",
+      "expected_answer": "An RSSI below -78 dBm on the 2.4 GHz band is classified as 'Poor'.",
+      "expected_sections": [
+        "Rssi",
+        "RSSI Threshold per radio"
+      ]
+    },
+    {
+      "id": "coverage_002",
+      "category": "coverage",
+      "difficulty": "easy",
+      "question": "What RSSI range is considered 'Good' for the 5 GHz band?",
+      "expected_answer": "An RSSI between -56 and -70 dBm on the 5 GHz band is classified as 'Good'.",
+      "expected_sections": [
+        "Rssi",
+        "RSSI Threshold per radio"
+      ]
+    },
+    {
+      "id": "coverage_003",
+      "category": "coverage",
+      "difficulty": "medium",
+      "question": "What is the RSSI threshold for 'Excellent' signal strength across all bands?",
+      "expected_answer": "An RSSI better than (less negative than) -55 dBm is 'Excellent' across all three bands (2.4 GHz, 5 GHz, and 6 GHz).",
+      "expected_sections": [
+        "Rssi",
+        "RSSI Threshold per radio"
+      ]
+    },
+    {
+      "id": "coverage_004",
+      "category": "coverage",
+      "difficulty": "hard",
+      "question": "How is RSSI aggregated from station-record level to serial number level?",
+      "expected_answer": "RSSI is aggregated in 4 steps: (1) categorize each STA record by band thresholds; (2) classify each STA per connection type if more than 12 records fall below threshold; (3) assign a final category per STA; (4) compute station scores weighted by log(STA volume / total volume), then sum weighted station scores for the home score.",
+      "expected_sections": [
+        "Rssi",
+        "RSSI aggregation logic"
+      ]
+    },
+    {
+      "id": "coverage_005",
+      "category": "coverage",
+      "difficulty": "medium",
+      "question": "How many records in a specific connection type must fall below the threshold to classify a station as 'Poor' for that band?",
+      "expected_answer": "More than 12 records in a specific connection type must fall below the threshold for a station to be classified under the 'Poor' category for that connection type.",
+      "expected_sections": [
+        "Rssi"
+      ]
+    },
+    {
+      "id": "coverage_006",
+      "category": "coverage",
+      "difficulty": "medium",
+      "question": "What is the RSSI threshold for 'Poor' on the 6 GHz band?",
+      "expected_answer": "An RSSI below -70 dBm on the 6 GHz band is classified as 'Poor'.",
+      "expected_sections": [
+        "Rssi",
+        "RSSI Threshold per radio"
+      ]
+    },
+    {
+      "id": "speed_001",
+      "category": "speed",
+      "difficulty": "easy",
+      "question": "What airtime utilization percentage is considered the threshold for potential congestion?",
+      "expected_answer": "An airtime utilization value of 70% or higher is considered not ideal and indicates potential congestion.",
+      "expected_sections": [
+        "Airtime Utilization/Congestion"
+      ]
+    },
+    {
+      "id": "speed_002",
+      "category": "speed",
+      "difficulty": "medium",
+      "question": "Which frequency band is used for airtime utilization in the WiFi score calculation?",
+      "expected_answer": "Only the 2.4 GHz band airtime utilization is used in the current version of the WiFi score. The data field is `Group_Diag_History_radio_wifi_info._2_4g.airtime_util`.",
+      "expected_sections": [
+        "Airtime Utilization/Congestion"
+      ]
+    },
+    {
+      "id": "speed_003",
+      "category": "speed",
+      "difficulty": "easy",
+      "question": "What time window is used for airtime utilization aggregation?",
+      "expected_answer": "Airtime utilization is aggregated over a 1-week period.",
+      "expected_sections": [
+        "Airtime Utilization/Congestion"
+      ]
+    },
+    {
+      "id": "speed_004",
+      "category": "speed",
+      "difficulty": "easy",
+      "question": "What phy rate threshold classifies a 5 GHz connection as 'Poor'?",
+      "expected_answer": "A phy rate below 200 Mbps on the 5 GHz band is classified as 'Poor'.",
+      "expected_sections": [
+        "Phy Rate"
+      ]
+    },
+    {
+      "id": "speed_005",
+      "category": "speed",
+      "difficulty": "medium",
+      "question": "What phy rate range is classified as 'Good' for the 2.4 GHz band?",
+      "expected_answer": "A phy rate between 101 and 120 Mbps on the 2.4 GHz band is classified as 'Good'.",
+      "expected_sections": [
+        "Phy Rate"
+      ]
+    },
+    {
+      "id": "speed_006",
+      "category": "speed",
+      "difficulty": "easy",
+      "question": "What phy rate qualifies as 'Excellent' for the 5 GHz band?",
+      "expected_answer": "A phy rate of 500 Mbps or higher on the 5 GHz band is classified as 'Excellent'.",
+      "expected_sections": [
+        "Phy Rate"
+      ]
+    },
+    {
+      "id": "aggregation_001",
+      "category": "aggregation",
+      "difficulty": "medium",
+      "question": "How are categorical KPI values (Poor/Fair/Good/Excellent) converted to numerical values for aggregation?",
+      "expected_answer": "The mapping is: Poor=1, Fair=2, Good=3, Excellent=4. Any other value or NULL maps to NULL.",
+      "expected_sections": [
+        "Aggregation",
+        "Reboot -> Reliability -> Wi-Fi Score"
+      ]
+    },
+    {
+      "id": "aggregation_002",
+      "category": "aggregation",
+      "difficulty": "medium",
+      "question": "How is a numerical aggregated reliability score converted back to a category?",
+      "expected_answer": "The numeric-to-category mapping is: <1.5 = Poor, 1.5 to <2.5 = Fair, 2.5 to <3.5 = Good, >=3.5 = Excellent. NULL maps to NULL.",
+      "expected_sections": [
+        "Aggregation",
+        "Reboot -> Reliability -> Wi-Fi Score"
+      ]
+    },
+    {
+      "id": "aggregation_003",
+      "category": "aggregation",
+      "difficulty": "hard",
+      "question": "A home has customer_reboot=Good, total_reboot=Fair, modem_reset=Fair, sudden_drop=Poor, steer_start=Good, steer_start_perHomeSTA=Good, ip_changes=Good. What is the Reliability category?",
+      "expected_answer": "Converting to numeric: Good=3, Fair=2, Poor=1. Weighted average (each weight=1/7): (3+2+2+1+3+3+3)/7 = 17/7 \u2248 2.43. This falls in the range >=1.5 and <2.5, so Reliability = Fair.",
+      "expected_sections": [
+        "Aggregation",
+        "Reboot -> Reliability -> Wi-Fi Score"
+      ]
+    },
+    {
+      "id": "aggregation_004",
+      "category": "aggregation",
+      "difficulty": "medium",
+      "question": "If a home has Coverage=Excellent, Speed=Good, and Reliability=Fair, what is the final WiFi score?",
+      "expected_answer": "The final WiFi score is Fair, because WiFi score = worst of (Coverage, Speed, Reliability) = worst of (Excellent, Good, Fair) = Fair.",
+      "expected_sections": [
+        "Aggregation",
+        "Wi-Fi Score Architecture"
+      ]
+    },
+    {
+      "id": "aggregation_005",
+      "category": "aggregation",
+      "difficulty": "hard",
+      "question": "Does a single KPI directly determine the WiFi score? Explain the full aggregation path.",
+      "expected_answer": "No. A single KPI flows through intermediate bucket scores first. For example: Number of reboots \u2192 categorized (Poor/Fair/Good/Excellent) \u2192 converted to numeric (1-4) \u2192 averaged with other reliability KPIs (each 1/7 weight) \u2192 converted back to Reliability category \u2192 WiFi score = worst of Coverage, Speed, Reliability.",
+      "expected_sections": [
+        "Aggregation",
+        "Wi-Fi Score Architecture",
+        "Reboot -> Reliability -> Wi-Fi Score"
+      ]
+    },
+    {
+      "id": "aggregation_006",
+      "category": "aggregation",
+      "difficulty": "medium",
+      "question": "How does RSSI relate to the WiFi score? What is the full aggregation path?",
+      "expected_answer": "RSSI does not directly determine the WiFi score. The path is: RSSI records \u2192 categorized per STA per band \u2192 aggregated to STA level \u2192 weighted by log(STA volume / total volume) into Coverage score \u2192 WiFi score = worst of (Coverage, Speed, Reliability).",
+      "expected_sections": [
+        "Rssi",
+        "Wi-Fi Score Architecture",
+        "RSSI aggregation logic"
+      ]
+    },
+    {
+      "id": "negative_001",
+      "category": "architecture",
+      "difficulty": "medium",
+      "question": "What is the average WiFi score across all homes in Verizon's network?",
+      "expected_answer": "I don't have enough information. The KPI document describes how WiFi score is calculated per home but does not provide network-wide average statistics.",
+      "expected_sections": []
+    },
+    {
+      "id": "negative_002",
+      "category": "speed",
+      "difficulty": "medium",
+      "question": "What are the phy rate thresholds for the 6 GHz band?",
+      "expected_answer": "The document does not specify phy rate thresholds for the 6 GHz band. Only 2.4 GHz and 5 GHz thresholds are defined.",
+      "expected_sections": [
+        "Phy Rate"
+      ]
+    }
+  ]
+}
