@@ -15,8 +15,6 @@ The system had multiple layers of metrics:
 - Mid level: Speed/Coverage/Reliability
 - Low level metrics: Latency/Upload/download throughput
 
-While the scoring system successfully quantified network performance, stakeholders struggled to interpret the results.
-
 
 **2. While the scoring system successfully quantified network performance, stakeholders struggled to interpret the results.**
 
@@ -43,72 +41,138 @@ Interpretability became a critical bottleneck.
 
 ## ⭐ Task
 
-My task was to make the Wi-Fi Score system explainable and actionable so that:
-- Analysts could quickly diagnose problems
-- Engineers could identify root causes
-- Product teams could understand customer experience drivers
+**Overall Goal:**
+Transform the WiFi Score system from a passive metric-reporting tool into an intelligent, self-explaining diagnostic engine — so that non-expert stakeholders could understand *why* a customer’s network is degraded and *what to do about it*, without needing to manually interpret dozens of KPIs.
 
-Traditional dashboards and metric tables were insufficient, So I proposed building an **LLM-based explanation system using Retrieval-Augmented Generation (RAG).**
-The goal was to enable users to ask questions like:
-- "Why is this customer’s Wi-Fi score low?"
-- "Is poor coverage causing reliability issues?"
-- "Which metric should we fix first?"
+**Granular Objectives:**
 
-RAG was ideal because it allows LLMs to **leverage domain-specific knowledge and private datasets**, improving accuracy and interpretability.
+1. **Ground LLM responses in real customer data** — convert per-device KPI snapshots (RSSI, SNR, packet loss, retransmission, etc.) from Parquet into structured natural-language narratives the LLM could reason over accurately, avoiding hallucination on customer-specific facts.
+
+2. **Inject telecom domain knowledge via RAG** — build and retrieve from a domain-specific knowledge base covering WiFi score construction, KPI definitions, and causal relationships (e.g., low SNR → interference), because a general-purpose LLM lacks this specialized context.
+
+3. **Ensure responses are intent-aware** — the system's output should be determined by the type of request: a diagnosis question should yield root-cause analysis, an explanation question should yield concept clarification, a recommendation question should yield actionable steps — not a one-size-fits-all answer.
+
+4. **Productionize at scale** — wrap the pipeline in a FastAPI service backed by PySpark on a cluster, capable of querying telemetry for 11M+ households on demand, with sub-30-second response times.
 
 
 ## Action:
 
-**1) Turned raw KPI tables into LLM-friendly “customer narratives”**
-- I pulled a single customer’s Wi-Fi score + sub-scores + KPI snapshot via SQL (e.g., Wi-Fi score, coverage/speed/reliability, RSSI, SNR, packet loss, latency, retransmission).
-- Then I converted the structured row into a natural-language performance summary, because LLMs reason more reliably over concise textual context than raw tables.
+<details>
+<summary>System Inputs and Pipeline Flow</summary>
 
-Why this matters: this step made explanations customer-specific instead of generic metric definitions.
+I built an end-to-end pipeline where two inputs enter the system and a diagnostic answer comes out.
+
+For input of the system, The user provides two things:
+- **Customer ID + date** — identifies which device and which day’s data to investigate
+- **A natural-language question** — what the user wants to know (e.g., "Why is this customer’s Wi-Fi score low?")
+
+Now, let's talk about the pipeline.
+
+**1) Fetch customer data**
+The customer ID and date are used to query the database and retrieve that device’s KPI snapshot (Wi-Fi score, coverage/speed/reliability sub-scores, RSSI, SNR, packet loss, retransmission, etc.), which is then converted into a natural-language summary for the LLM to reason over.
+
+**2) Retrieve relevant domain context (RAG)**
+The question is used to retrieve the most relevant knowledge from a three-source knowledge base I built:
+- **Public telecom documentation** — chunked reference material on standard wireless concepts (RSSI, SNR, interference, steering, etc.)
+- **Custom Wi-Fi Score documentation I authored** — a structured markdown doc explaining how each metric in our scoring system is defined, how the hierarchy is constructed, and how low-level KPIs drive mid-level scores
+- **Internal codebase** — scripts, classes, and functions describing the system’s own logic
+
+**3) Route to an intent-specific prompt**
+The question is also passed through an LLM-based classifier that determines the question type — Diagnosis, Explanation, Recommendation, Comparison, Score Calculation, or Trend/Anomaly. Each type maps to a dedicated prompt template designed for that mode of response.
+
+**4) Assemble and generate**
+The three components — customer KPI summary, retrieved RAG context, and intent-specific prompt — are combined into a final prompt and fed to the LLM to produce the response.
+
+</details>
+
+---
+
+<details>
+<summary>RAG System Design — Components and Selection</summary>
+
+Building the RAG system involved choosing the right component at each stage of the pipeline.
+
+**Knowledge sources**
+
+Three document collections form the retrieval corpus:
+- **Public telecom documentation** — domain knowledge covering standard wireless concepts, signal metrics, and network behavior
+- **Wi-Fi Score documentation I authored** — a ~10-page markdown document with clearly defined section titles, explaining how the scoring hierarchy is constructed, how each metric is defined, and how low-level KPIs roll up into sub-scores
+- **Internal scripts** — codebase containing multiple classes, methods, and functions that describe the system's own logic
+
+**Document preprocessing**
+
+Before ingestion, each source required preprocessing — analogous to data preprocessing in machine learning. Raw documents are rarely retrieval-ready. 
+- For example, the Wi-Fi Score documentation originally existed as a PDF with screenshots of tables and figures. I converted it into a clean markdown file: all tables were reconstructed as markdown tables, figures were replaced with descriptive text, and each section was given a structured heading — making it parseable and semantically retrievable.
+
+**Document Chunk**: chunking strategy was chosen per document type. 
+- For the Wi-Fi Score documentation, I evaluated three common strategies — fixed-size, semantic, and recursive — and selected recursive chunking: since the document is well-structured markdown with each section spanning 500–1000 words, the section boundaries naturally serve as clean split points. 
+- For internal scripts, I applied a code-aware AST-based chunking strategy that respects class and function boundaries rather than splitting on character count,  LlamaIndex CodeSplitter.
+
+**Embedding model**: selection depends on content type — 
+- pure text favors lightweight models like `text-embedding-3-small`; 
+- pure code favors `voyage-code-2`; 
+- mathematical content has specialized models like `MathBERT`/`TeleBERT` which better preserves formula semantics.
+Since our corpus is mixed — natural language documentation, structured markdown, and Python scripts — I used a general-purpose embedding model(`text-embedding-3-large`) that handles all three adequately rather than optimizing for one modality.
+
+**Vector store**: I evaluated three candidates. 
+- MongoDB Atlas Vector Search — Verizon has an active partnership with MongoDB — so it was the natural starting point. However, MongoDB is primarily a document database; when you are already storing application data (e.g., customer records) in MongoDB and want vector retrieval in the same system. As a standalone vector store it underperforms dedicated options, with less tunable indexing and higher latency at scale. 
+- GCP Vector Search has a similar pattern — it integrates well within the GCP ecosystem but adds operational overhead and cold-start latency when used outside of it. 
+- I ultimately selected **Redis**: it is a purpose-built, battle-tested in-memory store with native vector similarity search, sub-millisecond retrieval latency, and strong HNSW index support — making it the best fit for a pipeline where response time is a constraint.
+
+**Retriever**: I implemented hybrid retrieval — combining dense semantic search with sparse keyword search (BM25) — and compared it against pure semantic search. Hybrid consistently outperformed. This is expected in technical domains: semantic search captures meaning well but can miss exact-match terms like `RSSI`, `SNR`, or `wifiScore` that don't have meaningful synonyms.
+- **linked retrieval**
+- The retriever also derives a **dedicated retrieval** query from the user question rather than using the raw input directly, which improves precision when the question contains conversational phrasing irrelevant to retrieval.
+- Reranker: a cross-encoder reranker was considered to re-score the top-k candidates and improve precision before passing context to the LLM.
+
+**LLM selection**: two categories were evaluated — local open-source models and commercial model APIs.
+
+*Option 1: Local model — Qwen-3.5-7B (telecom fine-tuned)*
+
+Pros:
+- Fine-tuned specifically on telecom knowledge, giving it stronger baseline understanding of domain terminology without RAG
+- Runs fully on-premise — no data leaves the internal network, which satisfies strict enterprise security requirements
+- No per-token API cost
+
+Cons:
+- Requires dedicated GPU infrastructure and ongoing deployment maintenance — a significant operational burden for a data science team
+- One-time release with no future updates; as the underlying technology evolves, this model falls behind with no upgrade path
+- Despite the fine-tuning advantage, when a general model is paired with a well-designed RAG layer, the local model's domain edge largely disappears
+
+*Option 2: Commercial API — Claude (selected)*
+
+Pros:
+- Updated approximately every two months — the model continuously improves without any action on our end
+- Accessible via SDK with minimal integration overhead; compatible with orchestration frameworks like LangChain. Extremely capable out of the box; strong instruction-following and structured output reliability, which matters for a pipeline that expects JSON responses
+- Extremely capable out of the box; strong instruction-following and structured output reliability, which matters for a pipeline that expects JSON responses
+
+Cons:
+- Data is sent externally, raising security concerns — however, commercial providers do not use API inputs for model training, and the model can be version-locked to prevent unexpected behavior changes
+- Token consumption cost — but as an internal tool with limited concurrent users, the volume is low and cost is acceptable
+
+The combination of RAG-supplied domain context and Claude's reasoning quality outperformed the fine-tuned local model on response accuracy, making the commercial API the stronger choice for this use case.
 
 
-**2) Built a retrieval layer that fetches the right domain knowledge per question**
+</details>
 
-**1. First, I created a domain-specific knowledge base to support retrieval.**
-This included two main sources:
+---
 
-- Telecom engineering documentation, which describes technical concepts such as RSSI, SNR, retransmissions, latency, and steering behavior.
-- Custom Wi-Fi Score documentation that I designed myself, which explains:
-  - How the Wi-Fi Score hierarchy is constructed
-  - How each metric is defined
-  - What each metric means operationally
-  - How metrics relate to each other
-  - How low-level KPIs influence mid-level scores like speed, coverage, and reliability
-This documentation became the primary retrieval corpus for the RAG system.
+<details>
+<summary>RAG Evaluation</summary>
 
-**2). I then implemented a retrieval function that:**
-- Converts the user question into a retrieval-focused query (rag_query)
-- Searches the knowledge base
-- Returns the top-k most relevant snippets
-- Formats them into a structured context block:
+Evaluating RAG quality required a multi-layer strategy, since there are no ground-truth labels for root-cause explanations:
 
-**3) Designed Intent-Based Prompts**
+- **Component-level evaluation with RAGAS**: each stage of the pipeline — retrieval relevance, context faithfulness, answer groundedness — was measured independently using the RAGAS framework, isolating where quality degraded.
+- **Offline test dataset**: I constructed a curated set of representative queries with expected retrieval targets and answer characteristics, enabling repeatable regression testing as the knowledge base or model changed.
+- **Online user feedback**: the UI included a thumbs-up / thumbs-down rating on each response to capture satisfaction signal in production. Thumbs-down cases were triaged to identify failure patterns (e.g., wrong intent classification, missing context, hallucinated metrics) and the most informative cases were added to the offline test dataset, closing the feedback loop.
 
-**1. Different questions require different types of answers.**
-
-For example:
-- Diagnosis questions → identify root causes
-- Explanation questions → explain the metrics
-- Recommendation questions → suggest actions
-
-Using one generic prompt often produced confusing or inconsistent answers, such as diagnosing problems when the user only wanted an explanation.
+</details>
 
 
-**2. So I designed a simple intent-based prompt framework.**
-
-First, I classified questions into a few types:
-- Diagnosis
-- Explanation
-- Recommendation
-
-Then each type used a different prompt template so the model would respond in the right way.
 
 
 ## Result
+
+Firstly, it is delivered with high engagement rate
 
 ### Measurable Explanation Accuracy
 
@@ -116,12 +180,8 @@ Since ground-truth labels for root causes do not exist, we evaluated the system 
 
 **KPI-grounding accuracy**
 
-For sampled cases:
+- 80% of explanations correctly referenced degraded KPIs
 
-- 90% of explanations correctly referenced degraded KPIs
-- <10% contained irrelevant metrics
-
-This ensured explanations were consistent with actual network data.
 
 ### Faster Root-Cause Analysis
 
@@ -131,12 +191,6 @@ Before the system:
 
 After deployment:
 - Analysts could identify likely causes in 1–3 minutes using the generated explanations.
-
-This reduced investigation time by approximately:
-
-**~70–85% per case**
-
-This allowed teams to analyze many more problem cases in batch investigations.
 
 
 
