@@ -136,7 +136,6 @@ Pros:
 Cons:
 - Requires dedicated GPU infrastructure and ongoing deployment maintenance — a significant operational burden for a data science team
 - One-time release with no future updates; as the underlying technology evolves, this model falls behind with no upgrade path
-- Despite the fine-tuning advantage, when a general model is paired with a well-designed RAG layer, the local model's domain edge largely disappears
 
 *Option 2: Commercial API — Claude (selected)*
 
@@ -144,6 +143,7 @@ Pros:
 - Updated approximately every two months — the model continuously improves without any action on our end
 - Accessible via SDK with minimal integration overhead; compatible with orchestration frameworks like LangChain. Extremely capable out of the box; strong instruction-following and structured output reliability, which matters for a pipeline that expects JSON responses
 - Extremely capable out of the box; strong instruction-following and structured output reliability, which matters for a pipeline that expects JSON responses
+- Despite the fine-tuning advantage, when a general model is paired with a well-designed RAG layer, the local model's domain edge largely disappears
 
 Cons:
 - Data is sent externally, raising security concerns — however, commercial providers do not use API inputs for model training, and the model can be version-locked to prevent unexpected behavior changes
