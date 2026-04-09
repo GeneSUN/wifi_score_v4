@@ -194,3 +194,25 @@ After deployment:
 
 
 
+## Follow-up
+
+<details>
+
+**1. Agentic RAG (iterative retrieval)**
+
+The current pipeline is single-pass: retrieve relevant chunks once, inject them into the prompt, and generate an answer. A natural extension is agentic RAG, where the LLM can trigger additional retrieval rounds mid-generation — for example, if it determines that the initial context is insufficient to diagnose a root cause, it could request more specific chunks on a particular metric or algorithm before producing a final answer.
+
+This was deliberately descoped. Agentic retrieval introduces multi-round latency (potentially doubling or tripling response time), significantly increases system complexity (tool-use loop management, termination conditions, intermediate state), and does not guarantee better output quality — especially when the knowledge base is already well-structured and retrieval precision is high. For a domain-specific diagnostic tool with a bounded knowledge base, a well-designed single-pass RAG proved sufficient.
+
+**2. Multi-turn conversation**
+
+The current system is single-turn: one question yields one answer, with no memory of prior exchanges. A chatbot model with multi-turn context would allow follow-up questions like "What about the coverage score specifically?" or "Can you explain SNR in more detail?"
+
+This was also descoped for two reasons. 
+- First, multi-turn systems require non-trivial context engineering — deciding what to retain across turns, how to compress history, and how to prevent the context window from filling with irrelevant prior exchanges. 
+- Second, errors compound across turns: a misclassification or hallucination in turn one can propagate into every subsequent response, degrading quality in ways that are hard to detect or recover from. Research on multi-turn RAG consistently shows answer quality degrades as conversation depth increases. 
+
+In this use case, most diagnostic questions are self-contained — the marginal value of multi-turn was low relative to the added complexity and evaluation burden.
+
+
+</details>
