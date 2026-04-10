@@ -325,6 +325,9 @@ class station_score_hourly:
             F.col("b.phy_rate_score_5g").alias("phy_rate_score_5g_base"),
             F.col("b.phy_rate_score_6g").alias("phy_rate_score_6g_base"),
 
+            F.col("b.final_rssi_score").alias("final_rssi_score"),
+            F.col("b.final_phy_rate_score").alias("final_phy_rate_score"),
+
             F.col("v.snr_range").alias("snr_range_variation"),
             F.col("v.son_count").alias("son_count_variation"),
             F.col("v.phy_rate_range_2_4g").alias("phy_rate_range_2_4g_variation"),
